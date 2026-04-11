@@ -3,7 +3,8 @@ from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
 
 
 def main() -> None:
-    evaluator = ZigZagEvaluator("E:\\uni\\tfm\\repos\\talos\\workloads\\alexnet.onnx")
+    #evaluator = ZigZagEvaluator("E:\\uni\\tfm\\repos\\talos\\workloads\\alexnet.onnx")
+    evaluator = ZigZagEvaluator("/home/daniel/Documents/uni/TFM/repos/talos/workloads/alexnet.onnx")
     adapter = ObjectiveAdapter(evaluator)
 
     # Test genome: 8 genes, matching the proposed TALOS/ZigZag adapter layout

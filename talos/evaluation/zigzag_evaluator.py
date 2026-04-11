@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from pathlib import Path
+import yaml
 
-try:
-    from zigzag.api import get_hardware_performance_zigzag
-except ImportError:  # pragma: no cover
-    get_hardware_performance_zigzag = None
+from zigzag.api import get_hardware_performance_zigzag
 
 
 @dataclass
@@ -68,56 +67,74 @@ class ZigZagEvaluator:
     def __init__(
         self,
         workload: str,
-        mapping: dict[str, Any] | None = None,
+        mapping: list[dict[str, Any]] | None = None,
         opt: str = "EDP",
         use_mock_area: bool = True,
     ) -> None:
         self.workload = workload
         self.mapping = mapping or self._default_mapping()
+        self.mapping_yaml_path = self._write_mapping_yaml(self.mapping)
         self.opt = opt
         self.use_mock_area = use_mock_area
 
     def evaluate(self, genome: list[float]) -> EvaluationResult:
-        print("***EV CALLED WITH GENOME", genome)
-        return EvaluationResult(
-            latency=100.0,
-            energy=50.0,
-            area=30.0,
-            valid=True,
-        )
-#        try:
-#            cfg = self._decode_features(genome)
-#            accelerator = self._build_accelerator(cfg)
-#
-#            if get_hardware_performance_zigzag is None:
-#                raise RuntimeError(
-#                    "zigzag is not installed. Install it or keep this class in mock mode."
-#                )
-#
-#            energy, latency, cme = get_hardware_performance_zigzag(
-#                workload=self.workload,
-#                accelerator=accelerator,
-#                mapping=self.mapping,
-#                opt=self.opt,
-#            )
-#
-#            area = self._extract_area(cme, cfg)
-#
-#            return EvaluationResult(
-#                latency=float(latency),
-#                energy=float(energy),
-#                area=float(area),
-#                valid=True,
-#            )
-#
-#        except Exception:
-#            # Invalid individuals are penalized instead of crashing the search.
-#            return EvaluationResult(
-#                latency=float("inf"),
-#                energy=float("inf"),
-#                area=float("inf"),
-#                valid=False,
-#            )
+        try:
+            cfg = self._decode_features(genome)
+            accelerator = self._build_accelerator(cfg)
+            accelerator_yaml_path = self._write_accelerator_yaml(accelerator)
+
+            print("Using mapping file:", self.mapping_yaml_path)
+            print(Path(self.mapping_yaml_path).read_text(encoding="utf-8"))
+
+            print("Using accelerator file:", accelerator_yaml_path)
+            print(Path(accelerator_yaml_path).read_text(encoding="utf-8"))
+
+            energy, latency, cme = get_hardware_performance_zigzag(
+                workload=self.workload,
+                accelerator=accelerator_yaml_path,
+                mapping=self.mapping_yaml_path,
+                opt=self.opt,
+            )
+
+            area = self._extract_area(cme, cfg)
+
+            return EvaluationResult(
+                latency=float(latency),
+                energy=float(energy),
+                area=float(area),
+                valid=True,
+            )
+
+        except Exception:
+            import traceback
+            print("ZigZag evaluation failed:")
+            traceback.print_exc()
+            return EvaluationResult(
+                latency=float("inf"),
+                energy=float("inf"),
+                area=float("inf"),
+                valid=False,
+            )
+
+    def _write_mapping_yaml(self, mapping: list[dict[str, Any]]) -> str:
+        tmp_dir = Path("/home/daniel/Documents/uni/TFM/repos/talos/talos/evaluation/talos_zigzag")
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+
+        mapping_path = tmp_dir / "mapping.yaml"
+        with open(mapping_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(mapping, f, sort_keys=False)
+
+        return str(mapping_path)
+
+    def _write_accelerator_yaml(self, accelerator: dict[str, Any]) -> str:
+        out_dir = Path("/home/daniel/Documents/uni/TFM/repos/talos/talos/evaluation/talos_zigzag")
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        accelerator_path = out_dir / "accelerator.yaml"
+        with open(accelerator_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(accelerator, f, sort_keys=False)
+
+        return str(accelerator_path)
 
     def _decode_features(self, genome: list[float]) -> dict[str, int]:
         if len(genome) != len(self.GENE_NAMES):
@@ -135,96 +152,157 @@ class ZigZagEvaluator:
 
         return decoded
 
-    def _build_accelerator(self, cfg: dict[str, int]) -> dict[str, Any]:
-        """
-        Minimal accelerator model.
+    def _rw_port(self, name: str, bw: int, allocations: list[str]) -> dict[str, Any]:
+        return {
+            "name": name,
+            "type": "read_write",
+            "bandwidth_min": bw,
+            "bandwidth_max": bw,
+            "allocation": allocations,
+        }
 
-        This is intentionally simple so TALOS can start evolving
-        meaningful candidates before you refine the hardware model.
-        """
+    def _build_accelerator(self, cfg: dict[str, int]) -> dict[str, Any]:
         pe_x = cfg["pe_x"]
         pe_y = cfg["pe_y"]
+
+        rf_bw = cfg["rf_bw_bits"]
+        gb_bw = cfg["gb_bw_bits"]
+        dram_bw = cfg["dram_bw_bits"]
         gb_served_dims = self.SERVED_DIMS_MAP[cfg["gb_served_dims_code"]]
 
         accelerator = {
             "name": "talos_candidate",
-            "cores": [
-                {
-                    "id": 0,
-                    "operational_array": {
-                        "dimensions": {"D1": pe_x, "D2": pe_y},
-                        "unit": {
-                            "type": "Multiplier",
-                            "energy": 1.0,
-                            "area": 1.0,
-                        },
-                    },
-                    "memories": [
-                        {
-                            "name": "rf",
-                            "size": cfg["rf_size_bits"],
-                            "r_bw": cfg["rf_bw_bits"],
-                            "w_bw": cfg["rf_bw_bits"],
-                            "r_cost": 1.0,
-                            "w_cost": 1.0,
-                            "area": 1.0,
-                            "r_port": 1,
-                            "w_port": 1,
-                            "rw_port": 0,
-                            "served_dimensions": [],
-                        },
-                        {
-                            "name": "gb",
-                            "size": cfg["gb_size_bits"],
-                            "r_bw": cfg["gb_bw_bits"],
-                            "w_bw": cfg["gb_bw_bits"],
-                            "r_cost": 10.0,
-                            "w_cost": 10.0,
-                            "area": 10.0,
-                            "r_port": 1,
-                            "w_port": 1,
-                            "rw_port": 0,
-                            "served_dimensions": gb_served_dims,
-                        },
-                        {
-                            "name": "dram",
-                            "size": 10**12,
-                            "r_bw": cfg["dram_bw_bits"],
-                            "w_bw": cfg["dram_bw_bits"],
-                            "r_cost": 1000.0,
-                            "w_cost": 1000.0,
-                            "area": 0.0,
-                            "r_port": 1,
-                            "w_port": 1,
-                            "rw_port": 0,
-                            "served_dimensions": ["D1", "D2"],
-                        },
+            "operational_array": {
+                "is_imc": False,
+                "unit_energy": 1.0,
+                "unit_area": 1.0,
+                "dimensions": ["D1", "D2"],
+                "sizes": [pe_x, pe_y],
+                "imc_type": None,
+                "adc_resolution": 0,
+                "bit_serial_precision": None,
+            },
+            "memories": {
+                "rf_i1": {
+                    "size": cfg["rf_size_bits"],
+                    "r_cost": 1.0,
+                    "w_cost": 1.0,
+                    "area": 1.0,
+                    "latency": 1,
+                    "mem_type": "sram",
+                    "auto_cost_extraction": False,
+                    "operands": ["I1"],
+                    "ports": [
+                        self._rw_port(
+                            "rw_port_1",
+                            rf_bw,
+                            ["I1, tl", "I1, fh"],
+                        )
                     ],
-                }
-            ],
+                    "served_dimensions": [],
+                },
+                "rf_i2": {
+                    "size": cfg["rf_size_bits"],
+                    "r_cost": 1.0,
+                    "w_cost": 1.0,
+                    "area": 1.0,
+                    "latency": 1,
+                    "mem_type": "sram",
+                    "auto_cost_extraction": False,
+                    "operands": ["I2"],
+                    "ports": [
+                        self._rw_port(
+                            "rw_port_1",
+                            rf_bw,
+                            ["I2, tl", "I2, fh"],
+                        )
+                    ],
+                    "served_dimensions": [],
+                },
+                "rf_o": {
+                    "size": cfg["rf_size_bits"],
+                    "r_cost": 1.0,
+                    "w_cost": 1.0,
+                    "area": 1.0,
+                    "latency": 1,
+                    "mem_type": "sram",
+                    "auto_cost_extraction": False,
+                    "operands": ["O"],
+                    "ports": [
+                        self._rw_port(
+                            "rw_port_1",
+                            rf_bw,
+                            ["O, fh", "O, fl", "O, th", "O, tl"],
+                        )
+                    ],
+                    "served_dimensions": [],
+                },
+                "gb": {
+                    "size": cfg["gb_size_bits"],
+                    "r_cost": 10.0,
+                    "w_cost": 10.0,
+                    "area": 10.0,
+                    "latency": 1,
+                    "mem_type": "sram",
+                    "auto_cost_extraction": False,
+                    "operands": ["I1", "I2", "O"],
+                    "ports": [
+                        self._rw_port(
+                            "rw_port_1",
+                            gb_bw,
+                            [
+                                "I1, tl", "I1, fh",
+                                "I2, tl", "I2, fh",
+                                "O, fh", "O, fl", "O, th", "O, tl",
+                            ],
+                        )
+                    ],
+                    "served_dimensions": gb_served_dims,
+                },
+                "dram": {
+                    "size": 10**12,
+                    "r_cost": 1000.0,
+                    "w_cost": 1000.0,
+                    "area": 0.0,
+                    "latency": 1,
+                    "mem_type": "dram",
+                    "auto_cost_extraction": False,
+                    "operands": ["I1", "I2", "O"],
+                    "ports": [
+                        self._rw_port(
+                            "rw_port_1",
+                            dram_bw,
+                            [
+                                "I1, tl", "I1, fh",
+                                "I2, tl", "I2, fh",
+                                "O, fh", "O, fl", "O, th", "O, tl",
+                            ],
+                        )
+                    ],
+                    "served_dimensions": ["D1", "D2"],
+                },
+            },
         }
 
         return accelerator
 
-    def _default_mapping(self) -> dict[str, Any]:
-        """
-        Minimal mapping stub.
-        Adjust operand names if your workload/model uses different names.
-        """
-        return {
-            "memory_operand_links": {
-                "O": "O",
-                "W": "I2",
-                "I": "I1",
+    def _default_mapping(self):
+        return [
+            {
+                "name": "default",
+                "memory_operand_links": {
+                    "O": "O",
+                    "W": "I2",
+                    "I": "I1",
+                },
             }
-        }
+        ]
 
     def _extract_area(self, cme: Any, cfg: dict[str, int]) -> float:
         """
         First try to recover area from ZigZag's returned object.
         Fall back to a very rough analytical estimate.
         """
-        # Try common attribute names first.
         candidate_attrs = [
             "area_total",
             "total_area",
@@ -242,7 +320,6 @@ class ZigZagEvaluator:
                 if key in cme and isinstance(cme[key], (int, float)):
                     return float(cme[key])
 
-        # Fallback model for early TALOS integration.
         return self._estimate_area(cfg)
 
     def _estimate_area(self, cfg: dict[str, int]) -> float:
