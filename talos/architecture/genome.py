@@ -4,6 +4,9 @@ from dataclasses import dataclass
 import math
 from typing import Any
 
+#TODO: auto_cost_extraction=False-> means BW genomes
+#are broken. Either move this to level 2 and remove
+#these genomes or turn this true (possible more changes)
 
 @dataclass(frozen=True)
 class GeneSpec:
