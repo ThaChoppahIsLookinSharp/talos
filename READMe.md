@@ -45,6 +45,11 @@ objectives = [
 ```
 ---
 
+## Software used
+It is a work in progress. For now:
+- ZigZag https://github.com/KULeuven-MICAS/zigzag
+- NSGA-II implementation https://github.com/baopng/NSGA-II
+- Maybe pymoo, but we'll see if I end up using it
 ## Status
 
 Work in progress.
