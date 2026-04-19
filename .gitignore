@@ -35,3 +35,4 @@ htmlcov/
 # Added when I felt like it
 outputs/
 results/
+.talos_zigzag/
