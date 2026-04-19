@@ -11,7 +11,7 @@ def main() -> None:
     evaluator = ZigZagEvaluator(str(workload_path))
     adapter = ObjectiveAdapter(evaluator)
 
-    # Test genome: 8 genes, matching the proposed TALOS/ZigZag adapter layout
+    # Test genome: 8 genes, matching the current TALOS/ZigZag adapter layout
     genome = [2, 2, 3, 2, 3, 2, 3, 3]
 
     print("Evaluating genome:", genome)
@@ -20,7 +20,6 @@ def main() -> None:
     energy = adapter.energy(genome)
     area = adapter.area(genome)
 
-    print("\nIndividual objective values:")
     print(f"  Latency: {latency}")
     print(f"  Energy : {energy}")
     print(f"  Area   : {area}")
@@ -28,26 +27,43 @@ def main() -> None:
     print("\nFull objective vector:")
     print(" ", adapter.vector(genome))
 
-    print("\nCache entries after first evaluation:")
+    print("\nNamed objective evaluation:")
+    named_objectives = ["latency", "energy", "area", "edp", "eap", "alp"]
+
+    for name in named_objectives:
+        value = adapter.evaluate_objective(name, genome)
+        print(f"  {name}: {value}")
+
+    print("\nCallable objectives built from names:")
+    objective_names = ["latency", "energy", "area", "edp"]
+    objectives = adapter.build_objectives(objective_names)
+
+    for name, fn in zip(objective_names, objectives):
+        value = fn(genome)
+        print(f"  {name}: {value}")
+
+    print("\nCache entries after all evaluations:")
     print(" ", len(adapter._cache))
 
     # Run the same genome again to verify cache reuse
-    latency2 = adapter.latency(genome)
-    energy2 = adapter.energy(genome)
-    area2 = adapter.area(genome)
-
-    print("\nSecond evaluation of the same genome:")
-    print(f"  Latency: {latency2}")
-    print(f"  Energy : {energy2}")
-    print(f"  Area   : {area2}")
+    print("\nRe-evaluating the same genome through derived objectives:")
+    for name in ["latency", "edp", "alp"]:
+        value = adapter.evaluate_objective(name, genome)
+        print(f"  {name}: {value}")
 
     print("\nCache entries after repeated evaluation:")
     print(" ", len(adapter._cache))
 
     if len(adapter._cache) == 1:
-        print("\nOK: the evaluation was cached and should not be recomputed.")
+        print("\nOK: the genome evaluation was cached and reused.")
     else:
         print("\nSomething is wrong with the cache.")
+
+    print("\nTesting unknown objective handling:")
+    try:
+        adapter.evaluate_objective("unknown_objective", genome)
+    except ValueError as exc:
+        print(f"  Caught expected error: {exc}")
 
 
 if __name__ == "__main__":
