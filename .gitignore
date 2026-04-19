@@ -1,0 +1,37 @@
+.venv/
+
+*__pycache__*
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Testing / coverage
+.coverage
+.coverage.*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+htmlcov/
+
+# Type checkers / notebooks
+.pyre/
+.ipynb_checkpoints/
+
+# Tooling
+.python-version
+
+# Added when I felt like it
+outputs/
+results/
