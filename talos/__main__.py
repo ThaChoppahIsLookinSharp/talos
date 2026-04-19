@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from talos.architecture.genome import default_genome, gene_names
 from talos.evaluation.objective_adapter import ObjectiveAdapter
 from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
 
@@ -11,10 +12,10 @@ def main() -> None:
     evaluator = ZigZagEvaluator(str(workload_path))
     adapter = ObjectiveAdapter(evaluator)
 
-    # Test genome: 8 genes, matching the current TALOS/ZigZag adapter layout
-    genome = [2, 2, 3, 2, 3, 2, 3, 3]
+    genome = default_genome()
 
     print("Evaluating genome:", genome)
+    print("Gene order:", gene_names())
 
     latency = adapter.latency(genome)
     energy = adapter.energy(genome)

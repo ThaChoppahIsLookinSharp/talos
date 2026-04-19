@@ -33,7 +33,7 @@ class ObjectiveAdapter:
             print("Cache miss -> evaluating genome")
             self._cache[key] = self.evaluator.evaluate(list(key))
         else:
-        print("Cache hit")
+            print("Cache hit")
         return self._cache[key]
 
     def latency(self, genome: list[float]) -> float:
