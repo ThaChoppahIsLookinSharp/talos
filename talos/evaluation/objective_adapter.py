@@ -30,8 +30,10 @@ class ObjectiveAdapter:
         key = self._normalize_key(genome)
 
         if key not in self._cache:
+            print("Cache miss -> evaluating genome")
             self._cache[key] = self.evaluator.evaluate(list(key))
-
+        else:
+        print("Cache hit")
         return self._cache[key]
 
     def latency(self, genome: list[float]) -> float:
@@ -53,3 +55,32 @@ class ObjectiveAdapter:
             return (float("inf"), float("inf"), float("inf"))
 
         return (result.latency, result.energy, result.area)
+
+    def evaluate_objective(self, name: str, genome: list[float]) -> float:
+        result = self._get_result(genome)
+
+        if not result.valid:
+            return float("inf")
+
+        if name == "latency":
+            return result.latency
+        if name == "energy":
+            return result.energy
+        if name == "area":
+            return result.area
+        if name == "edp":
+            return result.energy * result.latency
+        if name == "eap":
+            return result.energy * result.area
+        if name == "alp":
+            return result.area * result.latency
+
+        raise ValueError(f"Unknown objective: {name}")
+
+    def get_objective(self, name: str):
+        def objective(genome: list[float]) -> float:
+            return self.evaluate_objective(name, genome)
+        return objective
+
+    def build_objectives(self, names: list[str]):
+        return [self.get_objective(name) for name in names]
