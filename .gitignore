@@ -33,4 +33,5 @@ htmlcov/
 .python-version
 
 # Added when I felt like it
-outputs
+outputs/
+results/

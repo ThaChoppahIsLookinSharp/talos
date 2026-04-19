@@ -14,8 +14,9 @@ class ObjectiveAdapter:
     executed only once per genome by caching the full EvaluationResult.
     """
 
-    def __init__(self, evaluator: ZigZagEvaluator) -> None:
+    def __init__(self, evaluator: ZigZagEvaluator, verbose: bool = False) -> None:
         self.evaluator = evaluator
+        self.verbose = verbose
         self._cache: dict[tuple[float, ...], EvaluationResult] = {}
 
     def clear_cache(self) -> None:
@@ -30,11 +31,15 @@ class ObjectiveAdapter:
         key = self._normalize_key(genome)
 
         if key not in self._cache:
-            print("Cache miss -> evaluating genome")
+            if self.verbose:
+                print("Cache miss -> evaluating genome")
             self._cache[key] = self.evaluator.evaluate(list(key))
-        else:
+        elif self.verbose:
             print("Cache hit")
         return self._cache[key]
+
+    def evaluate(self, genome: list[float]) -> EvaluationResult:
+        return self._get_result(genome)
 
     def latency(self, genome: list[float]) -> float:
         result = self._get_result(genome)
