@@ -1,10 +1,14 @@
+from pathlib import Path
+
 from talos.evaluation.objective_adapter import ObjectiveAdapter
 from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
 
 
 def main() -> None:
-    #evaluator = ZigZagEvaluator("E:\\uni\\tfm\\repos\\talos\\workloads\\alexnet.onnx")
-    evaluator = ZigZagEvaluator("/home/daniel/Documents/uni/TFM/repos/talos/workloads/alexnet.onnx")
+    repo_root = Path(__file__).resolve().parent.parent
+    workload_path = repo_root / "workloads" / "alexnet.onnx"
+
+    evaluator = ZigZagEvaluator(str(workload_path))
     adapter = ObjectiveAdapter(evaluator)
 
     # Test genome: 8 genes, matching the proposed TALOS/ZigZag adapter layout
