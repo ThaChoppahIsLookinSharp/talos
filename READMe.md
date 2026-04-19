@@ -5,6 +5,15 @@ architecture for your DNN accelerator while you do other stuff.
 ---
 ## Overview
 
+Long story short, you specify some parameters, this will try its best to 
+generate some nice architecture.
+
+It is a "2 level" generator.
+
+Level 1, usual NGSA-2. Fitness is outputs of ZigZag.
+Results are a set of abstract architectures.
+
+Level 2, using these abstract architectures
 
 ---
 
