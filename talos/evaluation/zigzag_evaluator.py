@@ -5,6 +5,7 @@ import contextlib
 from dataclasses import dataclass
 import io
 import logging
+import os
 from pathlib import Path
 from typing import Any
 import yaml
@@ -37,6 +38,8 @@ class ZigZagEvaluator:
         use_mock_area: bool = True,
         workdir: str | None = None,
         debug: bool = False,
+        lpf_limit: int = 6,
+        nb_spatial_mappings_generated: int = 3,
     ) -> None:
         self.workload = workload
         self.mapping = mapping if mapping is not None else self._default_mapping()
@@ -47,7 +50,10 @@ class ZigZagEvaluator:
         )
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.debug = debug
+        self.lpf_limit = lpf_limit
+        self.nb_spatial_mappings_generated = nb_spatial_mappings_generated
         self.mapping_yaml_path = self._write_mapping_yaml(self.mapping)
+        self._evaluation_counter = 0
 
     def evaluate(self, genome: list[float]) -> EvaluationResult:
         try:
@@ -108,7 +114,23 @@ class ZigZagEvaluator:
             accelerator=accelerator_yaml_path,
             mapping=self.mapping_yaml_path,
             opt=self.opt,
+            dump_folder=self._next_dump_folder(),
+            pickle_filename=None,
+            lpf_limit=self.lpf_limit,
+            nb_spatial_mappings_generated=self.nb_spatial_mappings_generated,
+            loma_show_progress_bar=self.debug,
         )
+
+    def _next_dump_folder(self) -> str:
+        """
+        ZigZag's default dump folder includes datetime strings with ':'.
+        Those paths are invalid on Windows, so TALOS always provides a
+        portable per-evaluation output folder.
+        """
+        self._evaluation_counter += 1
+        folder_name = f"run_{os.getpid()}_{self._evaluation_counter:06d}"
+        dump_folder = self.workdir / "zigzag_outputs" / folder_name
+        return str(dump_folder)
 
     @contextlib.contextmanager
     def _quiet_zigzag(self) -> Iterator[None]:
