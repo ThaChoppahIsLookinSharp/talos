@@ -33,15 +33,17 @@ pip install -r requirements.txt
 
 ## Usage
 
-python -m talos
-
-Define objectives in code:
+Example, I will elaborate. Someday:
 ```
-objectives = [
-    adapter.latency,
-    adapter.energy,
-    adapter.area,
-]
+python -m talos --ga 
+   --objectives latency energy area 
+   --pop-size 12
+   --generations 4
+   --workers 4
+   --seed 1
+   --zigzag-lpf-limit 1
+   --zigzag-spatial-mappings 1
+   --results-dir ./results
 ```
 ---
 
