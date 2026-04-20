@@ -5,7 +5,6 @@ from pathlib import Path
 
 from talos.evaluation.objective_adapter import ObjectiveAdapter
 from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
-from talos.ga.nsga2_runner import run_nsga2
 
 
 def repo_root() -> Path:
@@ -16,8 +15,18 @@ def default_workload_path() -> Path:
     return repo_root() / "workloads" / "alexnet.onnx"
 
 
-def run_smoke_test(workload_path: Path, debug: bool = False) -> None:
-    evaluator = ZigZagEvaluator(str(workload_path), debug=debug)
+def run_smoke_test(
+    workload_path: Path,
+    debug: bool = False,
+    zigzag_lpf_limit: int = 1,
+    zigzag_spatial_mappings: int = 1,
+) -> None:
+    evaluator = ZigZagEvaluator(
+        str(workload_path),
+        debug=debug,
+        lpf_limit=zigzag_lpf_limit,
+        nb_spatial_mappings_generated=zigzag_spatial_mappings,
+    )
     adapter = ObjectiveAdapter(evaluator)
 
     # Test genome matching the current 8-gene TALOS setup
@@ -96,7 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ga",
         action="store_true",
-        help="Run the NSGA-II example instead of the manual smoke test",
+        help="Run the pymoo NSGA-II example instead of the manual smoke test",
     )
     parser.add_argument(
         "--objectives",
@@ -107,14 +116,34 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--generations",
         type=int,
-        default=3,
+        default=2,
         help="Number of generations for the GA run",
     )
     parser.add_argument(
+        "--pop-size",
         "--individuals",
+        dest="pop_size",
         type=int,
-        default=10,
-        help="Number of individuals for the GA run",
+        default=6,
+        help="Population size for the GA run",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Number of CPU worker processes for element-wise evaluation",
+    )
+    parser.add_argument(
+        "--zigzag-lpf-limit",
+        type=int,
+        default=1,
+        help="ZigZag temporal mapping LPF limit for quick smoke/GA runs",
+    )
+    parser.add_argument(
+        "--zigzag-spatial-mappings",
+        type=int,
+        default=1,
+        help="Number of ZigZag spatial mappings generated per evaluation",
     )
     parser.add_argument(
         "--seed",
@@ -147,32 +176,45 @@ def main() -> None:
         raise FileNotFoundError(f"Workload file not found: {workload_path}")
 
     if args.ga:
-        print("Running NSGA-II...")
+        from talos.ga.pymoo_runner import run_nsga2_pymoo
+
+        print("Running pymoo NSGA-II...")
         print(f"  Workload    : {workload_path}")
         print(f"  Objectives  : {args.objectives}")
+        print(f"  Pop size    : {args.pop_size}")
         print(f"  Generations : {args.generations}")
-        print(f"  Individuals : {args.individuals}")
         print(f"  Seed        : {args.seed}")
+        print(f"  Workers     : {args.workers}")
+        print(f"  LPF limit   : {args.zigzag_lpf_limit}")
+        print(f"  Spatial maps: {args.zigzag_spatial_mappings}")
         print(f"  Results dir : {args.results_dir}")
 
-        result = run_nsga2(
+        result = run_nsga2_pymoo(
             workload_path=str(workload_path),
             objective_names=args.objectives,
-            num_of_generations=args.generations,
-            num_of_individuals=args.individuals,
+            pop_size=args.pop_size,
+            n_gen=args.generations,
             seed=args.seed,
+            n_workers=args.workers,
             debug=args.debug,
             save_csv=not args.no_save_csv,
             results_dir=str(args.results_dir),
+            zigzag_lpf_limit=args.zigzag_lpf_limit,
+            zigzag_spatial_mappings=args.zigzag_spatial_mappings,
         )
 
-        print("\nNSGA-II run finished.")
-        if result is not None:
-            print("Result object returned by runner.")
+        print("\npymoo NSGA-II run finished.")
+        if getattr(result, "talos", None) is not None and result.talos.csv_path:
+            print(f"Results CSV: {result.talos.csv_path}")
     else:
         print("Running manual smoke test...")
         print(f"  Workload: {workload_path}")
-        run_smoke_test(workload_path, debug=args.debug)
+        run_smoke_test(
+            workload_path,
+            debug=args.debug,
+            zigzag_lpf_limit=args.zigzag_lpf_limit,
+            zigzag_spatial_mappings=args.zigzag_spatial_mappings,
+        )
 
 
 if __name__ == "__main__":
