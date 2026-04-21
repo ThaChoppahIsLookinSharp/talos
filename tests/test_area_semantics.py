@@ -26,13 +26,13 @@ class StubEvaluator(ZigZagEvaluator):
         tmp_path: Path,
         cme,
         *,
-        use_area_proxy_fallback: bool = True,
+        area_policy: str = "prefer_zigzag_then_proxy",
     ) -> None:
         super().__init__(
             workload="dummy.onnx",
             debug=False,
             workdir=str(tmp_path),
-            use_area_proxy_fallback=use_area_proxy_fallback,
+            area_policy=area_policy,
         )
         self._stub_cme = cme
 
@@ -84,7 +84,7 @@ class AreaSemanticsTests(unittest.TestCase):
         self.assertEqual(source, "zigzag")
         self.assertEqual(raw_zigzag_area, 789.0)
 
-    def test_evaluate_uses_area_proxy_when_zigzag_area_missing(self) -> None:
+    def test_evaluate_prefers_zigzag_then_proxy_when_area_missing(self) -> None:
         evaluator = StubEvaluator(make_workdir(), cme={})
 
         result = evaluator.evaluate(TEST_GENOME)
@@ -96,11 +96,11 @@ class AreaSemanticsTests(unittest.TestCase):
         self.assertTrue(result.area_is_proxy)
         self.assertIsNone(result.raw_zigzag_area)
 
-    def test_evaluate_fails_when_area_missing_and_proxy_disabled(self) -> None:
+    def test_evaluate_fails_in_zigzag_only_mode_when_area_missing(self) -> None:
         evaluator = StubEvaluator(
             make_workdir(),
             cme={},
-            use_area_proxy_fallback=False,
+            area_policy="zigzag_only",
         )
 
         result = evaluator.evaluate(TEST_GENOME)
@@ -111,7 +111,7 @@ class AreaSemanticsTests(unittest.TestCase):
         self.assertFalse(result.area_is_proxy)
         self.assertEqual(
             result.error_message,
-            "ZigZag did not return a usable area value and area proxy fallback is disabled.",
+            "ZigZag did not return a usable area value and area_policy='zigzag_only'.",
         )
 
     def test_evaluate_marks_area_source_when_zigzag_area_exists(self) -> None:
@@ -124,6 +124,37 @@ class AreaSemanticsTests(unittest.TestCase):
         self.assertEqual(result.area_source, "zigzag")
         self.assertFalse(result.area_is_proxy)
         self.assertEqual(result.raw_zigzag_area, 321.0)
+
+    def test_evaluate_uses_proxy_only_mode_even_if_zigzag_area_exists(self) -> None:
+        evaluator = StubEvaluator(
+            make_workdir(),
+            cme={"area_total": 321.0},
+            area_policy="proxy_only",
+        )
+
+        result = evaluator.evaluate(TEST_GENOME)
+        expected_proxy = evaluator._estimate_area_proxy(decode_genome(TEST_GENOME))
+
+        self.assertTrue(result.valid)
+        self.assertEqual(result.area, expected_proxy)
+        self.assertEqual(result.area_source, "proxy")
+        self.assertTrue(result.area_is_proxy)
+        self.assertIsNone(result.raw_zigzag_area)
+
+    def test_evaluate_uses_zigzag_only_mode_when_area_exists(self) -> None:
+        evaluator = StubEvaluator(
+            make_workdir(),
+            cme={"total_area": 654.0},
+            area_policy="zigzag_only",
+        )
+
+        result = evaluator.evaluate(TEST_GENOME)
+
+        self.assertTrue(result.valid)
+        self.assertEqual(result.area, 654.0)
+        self.assertEqual(result.area_source, "zigzag")
+        self.assertFalse(result.area_is_proxy)
+        self.assertEqual(result.raw_zigzag_area, 654.0)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ import io
 import logging
 import os
 from pathlib import Path
+import sys
 from typing import Any
 import yaml
 
@@ -23,6 +24,7 @@ class EvaluationResult:
     area_source: str = "missing"
     area_is_proxy: bool = False
     raw_zigzag_area: float | None = None
+    memory_cost_mode: str = "manual"
 
 
 class ZigZagEvaluator:
@@ -44,6 +46,10 @@ class ZigZagEvaluator:
         "prefer_zigzag_then_proxy",
         "proxy_only",
     }
+    VALID_MEMORY_COST_MODES = {
+        "manual",
+        "zigzag_auto",
+    }
 
     def __init__(
         self,
@@ -51,6 +57,7 @@ class ZigZagEvaluator:
         mapping: list[dict[str, Any]] | None = None,
         opt: str = "EDP",
         area_policy: str = "prefer_zigzag_then_proxy",
+        memory_cost_mode: str = "manual",
         workdir: str | None = None,
         debug: bool = False,
         lpf_limit: int = 6,
@@ -65,6 +72,12 @@ class ZigZagEvaluator:
                 f"Unknown area_policy {area_policy!r}. Expected one of: {valid}."
             )
         self.area_policy = area_policy
+        if memory_cost_mode not in self.VALID_MEMORY_COST_MODES:
+            valid = ", ".join(sorted(self.VALID_MEMORY_COST_MODES))
+            raise ValueError(
+                f"Unknown memory_cost_mode {memory_cost_mode!r}. Expected one of: {valid}."
+            )
+        self.memory_cost_mode = memory_cost_mode
         self.workdir = (
             Path(workdir) if workdir is not None else Path.cwd() / ".talos_zigzag"
         )
@@ -83,10 +96,12 @@ class ZigZagEvaluator:
 
             if self.debug:
                 self._print_debug_yaml(accelerator_yaml_path)
-                energy, latency, cme = self._run_zigzag(accelerator_yaml_path)
+                with self._zigzag_runtime_env():
+                    energy, latency, cme = self._run_zigzag(accelerator_yaml_path)
             else:
                 with self._quiet_zigzag():
-                    energy, latency, cme = self._run_zigzag(accelerator_yaml_path)
+                    with self._zigzag_runtime_env():
+                        energy, latency, cme = self._run_zigzag(accelerator_yaml_path)
 
             area, area_source, raw_zigzag_area = self._extract_area(cme, cfg)
 
@@ -103,6 +118,7 @@ class ZigZagEvaluator:
                 area_source=area_source,
                 area_is_proxy=(area_source == "proxy"),
                 raw_zigzag_area=raw_zigzag_area,
+                memory_cost_mode=self.memory_cost_mode,
             )
 
         except Exception as exc:
@@ -112,15 +128,20 @@ class ZigZagEvaluator:
                 print("ZigZag evaluation failed:")
                 traceback.print_exc()
 
+            error_message = str(exc)
+            if self.memory_cost_mode == "zigzag_auto":
+                error_message = self._format_memory_cost_mode_error(exc)
+
             return EvaluationResult(
                 latency=float("inf"),
                 energy=float("inf"),
                 area=float("inf"),
                 valid=False,
-                error_message=str(exc),
+                error_message=error_message,
                 area_source="missing",
                 area_is_proxy=False,
                 raw_zigzag_area=None,
+                memory_cost_mode=self.memory_cost_mode,
             )
 
     def _write_mapping_yaml(self, mapping: list[dict[str, Any]]) -> str:
@@ -176,6 +197,40 @@ class ZigZagEvaluator:
         finally:
             logging.disable(previous_disable_level)
 
+    @contextlib.contextmanager
+    def _zigzag_runtime_env(self) -> Iterator[None]:
+        """
+        Ensure ZigZag/CACTI subprocesses inherit the active Python environment.
+
+        ZigZag 3.8.5 launches CACTI helpers through a bare ``python`` command.
+        When the PATH points to a different interpreter, auto memory cost
+        extraction can fail even if the current TALOS venv is correctly set up.
+        """
+        if self.memory_cost_mode != "zigzag_auto":
+            yield
+            return
+
+        python_executable = Path(sys.executable).resolve()
+        python_dir = str(python_executable.parent)
+        site_packages = str(python_executable.parent.parent / "Lib" / "site-packages")
+        repo_root = str(Path(__file__).resolve().parents[2])
+        previous_path = os.environ.get("PATH", "")
+        previous_pythonpath = os.environ.get("PYTHONPATH", "")
+        os.environ["PATH"] = os.pathsep.join([python_dir, previous_path])
+        os.environ["PYTHONPATH"] = os.pathsep.join(
+            [site_packages, repo_root, previous_pythonpath]
+            if previous_pythonpath
+            else [site_packages, repo_root]
+        )
+        try:
+            yield
+        finally:
+            os.environ["PATH"] = previous_path
+            if previous_pythonpath:
+                os.environ["PYTHONPATH"] = previous_pythonpath
+            else:
+                os.environ.pop("PYTHONPATH", None)
+
     def _print_debug_yaml(self, accelerator_yaml_path: str) -> None:
         print("Using mapping file:", self.mapping_yaml_path)
         print(Path(self.mapping_yaml_path).read_text(encoding="utf-8"))
@@ -190,6 +245,46 @@ class ZigZagEvaluator:
             "bandwidth_min": bw,
             "bandwidth_max": bw,
             "allocation": allocations,
+        }
+
+    def build_accelerator_from_genome(self, genome: list[float]) -> dict[str, Any]:
+        """Build the accelerator description used for the given TALOS genome."""
+        return self._build_accelerator(decode_genome(genome))
+
+    def render_accelerator_yaml(self, genome: list[float]) -> str:
+        """Render the accelerator YAML for inspection/debug without running ZigZag."""
+        accelerator = self.build_accelerator_from_genome(genome)
+        return yaml.safe_dump(accelerator, sort_keys=False)
+
+    def _memory_cost_fields(
+        self,
+        *,
+        size_bits: int,
+        r_cost: float,
+        w_cost: float,
+        area: float,
+        latency: int,
+        mem_type: str,
+    ) -> dict[str, Any]:
+        if self.memory_cost_mode == "manual":
+            return {
+                "size": size_bits,
+                "r_cost": r_cost,
+                "w_cost": w_cost,
+                "area": area,
+                "latency": latency,
+                "mem_type": mem_type,
+                "auto_cost_extraction": False,
+            }
+
+        return {
+            "size": size_bits,
+            "r_cost": None,
+            "w_cost": None,
+            "area": None,
+            "latency": latency,
+            "mem_type": mem_type,
+            "auto_cost_extraction": True,
         }
 
     def _build_accelerator(self, cfg: ArchitectureConfig) -> dict[str, Any]:
@@ -207,13 +302,14 @@ class ZigZagEvaluator:
             },
             "memories": {
                 "rf_i1": {
-                    "size": cfg.rf_size_bits,
-                    "r_cost": 1.0,
-                    "w_cost": 1.0,
-                    "area": 1.0,
-                    "latency": 1,
-                    "mem_type": "sram",
-                    "auto_cost_extraction": False,
+                    **self._memory_cost_fields(
+                        size_bits=cfg.rf_size_bits,
+                        r_cost=1.0,
+                        w_cost=1.0,
+                        area=1.0,
+                        latency=1,
+                        mem_type="sram",
+                    ),
                     "operands": ["I1"],
                     "ports": [
                         self._rw_port(
@@ -225,13 +321,14 @@ class ZigZagEvaluator:
                     "served_dimensions": [],
                 },
                 "rf_i2": {
-                    "size": cfg.rf_size_bits,
-                    "r_cost": 1.0,
-                    "w_cost": 1.0,
-                    "area": 1.0,
-                    "latency": 1,
-                    "mem_type": "sram",
-                    "auto_cost_extraction": False,
+                    **self._memory_cost_fields(
+                        size_bits=cfg.rf_size_bits,
+                        r_cost=1.0,
+                        w_cost=1.0,
+                        area=1.0,
+                        latency=1,
+                        mem_type="sram",
+                    ),
                     "operands": ["I2"],
                     "ports": [
                         self._rw_port(
@@ -243,13 +340,14 @@ class ZigZagEvaluator:
                     "served_dimensions": [],
                 },
                 "rf_o": {
-                    "size": cfg.rf_size_bits,
-                    "r_cost": 1.0,
-                    "w_cost": 1.0,
-                    "area": 1.0,
-                    "latency": 1,
-                    "mem_type": "sram",
-                    "auto_cost_extraction": False,
+                    **self._memory_cost_fields(
+                        size_bits=cfg.rf_size_bits,
+                        r_cost=1.0,
+                        w_cost=1.0,
+                        area=1.0,
+                        latency=1,
+                        mem_type="sram",
+                    ),
                     "operands": ["O"],
                     "ports": [
                         self._rw_port(
@@ -261,13 +359,14 @@ class ZigZagEvaluator:
                     "served_dimensions": [],
                 },
                 "gb": {
-                    "size": cfg.gb_size_bits,
-                    "r_cost": 10.0,
-                    "w_cost": 10.0,
-                    "area": 10.0,
-                    "latency": 1,
-                    "mem_type": "sram",
-                    "auto_cost_extraction": False,
+                    **self._memory_cost_fields(
+                        size_bits=cfg.gb_size_bits,
+                        r_cost=10.0,
+                        w_cost=10.0,
+                        area=10.0,
+                        latency=1,
+                        mem_type="sram",
+                    ),
                     "operands": ["I1", "I2", "O"],
                     "ports": [
                         self._rw_port(
@@ -283,13 +382,14 @@ class ZigZagEvaluator:
                     "served_dimensions": cfg.gb_served_dims,
                 },
                 "dram": {
-                    "size": 10**12,
-                    "r_cost": 1000.0,
-                    "w_cost": 1000.0,
-                    "area": 0.0,
-                    "latency": 1,
-                    "mem_type": "dram",
-                    "auto_cost_extraction": False,
+                    **self._memory_cost_fields(
+                        size_bits=10**12,
+                        r_cost=1000.0,
+                        w_cost=1000.0,
+                        area=0.0,
+                        latency=1,
+                        mem_type="dram",
+                    ),
                     "operands": ["I1", "I2", "O"],
                     "ports": [
                         self._rw_port(
@@ -387,3 +487,14 @@ class ZigZagEvaluator:
         gb_area = cfg.gb_size_bits * 0.0005
 
         return float(mac_area + rf_area + gb_area)
+
+    def _format_memory_cost_mode_error(self, exc: Exception) -> str:
+        base = str(exc)
+        if os.name == "nt":
+            return (
+                f"{base} "
+                "ZigZag 3.8.5 memory auto-cost extraction is currently experimental in this "
+                "Windows environment: its CACTI helper uses Unix-specific commands and path "
+                "assumptions, so `memory_cost_mode='zigzag_auto'` may fail at runtime."
+            )
+        return base

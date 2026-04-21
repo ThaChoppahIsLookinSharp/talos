@@ -41,6 +41,7 @@ def run_nsga2(
     debug: bool = False,
     save_csv: bool = True,
     results_dir: str | None = None,
+    memory_cost_mode: str = "manual",
 ) -> NSGA2RunResult:
     objective_names = list(objective_names or DEFAULT_OBJECTIVES)
     if not objective_names:
@@ -60,7 +61,11 @@ def run_nsga2(
     except ImportError:
         pass
 
-    evaluator = ZigZagEvaluator(workload=workload_path, debug=debug)
+    evaluator = ZigZagEvaluator(
+        workload=workload_path,
+        debug=debug,
+        memory_cost_mode=memory_cost_mode,
+    )
     adapter = ObjectiveAdapter(evaluator, verbose=debug)
     objectives = adapter.build_objectives(objective_names)
 
@@ -143,6 +148,7 @@ def _write_results_csv(
         "energy",
         "area",
         "valid",
+        "memory_cost_mode",
     ]
     fieldnames.extend(f"raw_{name}" for name in names)
     fieldnames.extend(f"code_{name}" for name in names)
@@ -170,6 +176,7 @@ def _write_results_csv(
                 "energy": result.energy,
                 "area": result.area,
                 "valid": result.valid,
+                "memory_cost_mode": result.memory_cost_mode,
             }
 
             row.update({f"raw_{name}": raw_genome[i] for i, name in enumerate(names)})

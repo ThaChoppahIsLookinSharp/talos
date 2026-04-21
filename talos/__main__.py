@@ -18,12 +18,14 @@ def default_workload_path() -> Path:
 def run_smoke_test(
     workload_path: Path,
     debug: bool = False,
+    memory_cost_mode: str = "manual",
     zigzag_lpf_limit: int = 1,
     zigzag_spatial_mappings: int = 1,
 ) -> None:
     evaluator = ZigZagEvaluator(
         str(workload_path),
         debug=debug,
+        memory_cost_mode=memory_cost_mode,
         lpf_limit=zigzag_lpf_limit,
         nb_spatial_mappings_generated=zigzag_spatial_mappings,
     )
@@ -42,6 +44,7 @@ def run_smoke_test(
     print(f"  Latency: {latency}")
     print(f"  Energy : {energy}")
     print(f"  Area   : {area}")
+    print(f"  MemCost: {adapter.evaluate(genome).memory_cost_mode}")
 
     print("\nFull objective vector:")
     print(" ", adapter.vector(genome))
@@ -134,6 +137,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of CPU worker processes for element-wise evaluation",
     )
     parser.add_argument(
+        "--memory-cost-mode",
+        choices=["manual", "zigzag_auto"],
+        default="manual",
+        help="Memory cost model for Level 1",
+    )
+    parser.add_argument(
         "--zigzag-lpf-limit",
         type=int,
         default=1,
@@ -197,6 +206,7 @@ def main() -> None:
             seed=args.seed,
             n_workers=args.workers,
             debug=args.debug,
+            memory_cost_mode=args.memory_cost_mode,
             save_csv=not args.no_save_csv,
             results_dir=str(args.results_dir),
             zigzag_lpf_limit=args.zigzag_lpf_limit,
@@ -212,6 +222,7 @@ def main() -> None:
         run_smoke_test(
             workload_path,
             debug=args.debug,
+            memory_cost_mode=args.memory_cost_mode,
             zigzag_lpf_limit=args.zigzag_lpf_limit,
             zigzag_spatial_mappings=args.zigzag_spatial_mappings,
         )

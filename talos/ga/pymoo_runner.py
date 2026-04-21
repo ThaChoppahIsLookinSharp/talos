@@ -60,6 +60,7 @@ class TalosPymooProblem(ElementwiseProblem):
         debug: bool = False,
         elementwise_runner: Any | None = None,
         workdir: str | None = None,
+        memory_cost_mode: str = "manual",
         zigzag_lpf_limit: int = 1,
         zigzag_spatial_mappings: int = 1,
     ) -> None:
@@ -67,6 +68,7 @@ class TalosPymooProblem(ElementwiseProblem):
         self.objective_names = list(objective_names)
         self.debug = debug
         self.workdir = workdir
+        self.memory_cost_mode = memory_cost_mode
         self.zigzag_lpf_limit = zigzag_lpf_limit
         self.zigzag_spatial_mappings = zigzag_spatial_mappings
         self._adapter = adapter
@@ -93,6 +95,7 @@ class TalosPymooProblem(ElementwiseProblem):
                 workload=self.workload_path,
                 debug=self.debug,
                 workdir=self._worker_workdir(),
+                memory_cost_mode=self.memory_cost_mode,
                 lpf_limit=self.zigzag_lpf_limit,
                 nb_spatial_mappings_generated=self.zigzag_spatial_mappings,
             )
@@ -141,6 +144,7 @@ def run_nsga2_pymoo(
     debug: bool = False,
     save_csv: bool = True,
     results_dir: str | None = None,
+    memory_cost_mode: str = "manual",
     zigzag_lpf_limit: int = 1,
     zigzag_spatial_mappings: int = 1,
 ):
@@ -161,6 +165,7 @@ def run_nsga2_pymoo(
         workload=workload_path,
         debug=debug,
         workdir=str(workdir / "main"),
+        memory_cost_mode=memory_cost_mode,
         lpf_limit=zigzag_lpf_limit,
         nb_spatial_mappings_generated=zigzag_spatial_mappings,
     )
@@ -180,6 +185,7 @@ def run_nsga2_pymoo(
                 debug=debug,
                 elementwise_runner=runner,
                 workdir=str(workdir),
+                memory_cost_mode=memory_cost_mode,
                 zigzag_lpf_limit=zigzag_lpf_limit,
                 zigzag_spatial_mappings=zigzag_spatial_mappings,
             )
@@ -190,6 +196,7 @@ def run_nsga2_pymoo(
                 adapter=adapter,
                 debug=debug,
                 workdir=str(workdir),
+                memory_cost_mode=memory_cost_mode,
                 zigzag_lpf_limit=zigzag_lpf_limit,
                 zigzag_spatial_mappings=zigzag_spatial_mappings,
             )
@@ -293,6 +300,7 @@ def _write_results_csv(
         "area",
         "valid",
         "error_message",
+        "memory_cost_mode",
     ]
     fieldnames.extend(f"raw_{name}" for name in names)
     fieldnames.extend(f"code_{name}" for name in names)
@@ -313,6 +321,7 @@ def _write_results_csv(
             base_result = _base_result_from_objectives(
                 objective_names,
                 objective_values,
+                memory_cost_mode,
             )
             if base_result is None:
                 base_result = _safe_evaluate_base(adapter, raw_genome)
@@ -332,6 +341,7 @@ def _write_results_csv(
                 "area": base_result.area,
                 "valid": base_result.valid,
                 "error_message": base_result.error_message,
+                "memory_cost_mode": base_result.memory_cost_mode,
             }
             row.update({f"raw_{name}": raw_genome[i] for i, name in enumerate(names)})
             row.update(
@@ -380,6 +390,7 @@ def _result_objective_rows(result: Any) -> list[list[float]]:
 def _base_result_from_objectives(
     objective_names: list[str],
     objective_values: list[float] | None,
+    memory_cost_mode: str,
 ) -> EvaluationResult | None:
     if objective_values is None:
         return None
@@ -400,6 +411,7 @@ def _base_result_from_objectives(
         area=area,
         valid=valid,
         error_message=None if valid else "Non-finite objective returned by pymoo.",
+        memory_cost_mode=memory_cost_mode,
     )
 
 

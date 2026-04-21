@@ -36,3 +36,4 @@ htmlcov/
 outputs/
 result*/
 .talos_zigzag/
+_tmp*/
