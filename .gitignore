@@ -34,5 +34,5 @@ htmlcov/
 
 # Added when I felt like it
 outputs/
-results/
+result*/
 .talos_zigzag/

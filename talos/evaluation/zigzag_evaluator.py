@@ -20,6 +20,9 @@ class EvaluationResult:
     area: float
     valid: bool
     error_message: str | None = None
+    area_source: str = "missing"
+    area_is_proxy: bool = False
+    raw_zigzag_area: float | None = None
 
 
 class ZigZagEvaluator:
@@ -28,6 +31,12 @@ class ZigZagEvaluator:
 
     Genome semantics live in talos.architecture.genome. This evaluator
     only consumes decoded architecture configs and runs ZigZag.
+
+    Level 1 keeps the third objective exposed as ``area`` for compatibility,
+    but its provenance is tracked explicitly. When ZigZag exposes a usable
+    area estimate, TALOS uses it directly. Otherwise TALOS can fall back to
+    an internal architectural cost proxy that is only meant to guide the
+    Level-1 search, not to represent physical implementation area.
     """
 
     def __init__(
@@ -35,7 +44,7 @@ class ZigZagEvaluator:
         workload: str,
         mapping: list[dict[str, Any]] | None = None,
         opt: str = "EDP",
-        use_mock_area: bool = True,
+        use_area_proxy_fallback: bool = True,
         workdir: str | None = None,
         debug: bool = False,
         lpf_limit: int = 6,
@@ -44,7 +53,7 @@ class ZigZagEvaluator:
         self.workload = workload
         self.mapping = mapping if mapping is not None else self._default_mapping()
         self.opt = opt
-        self.use_mock_area = use_mock_area
+        self.use_area_proxy_fallback = use_area_proxy_fallback
         self.workdir = (
             Path(workdir) if workdir is not None else Path.cwd() / ".talos_zigzag"
         )
@@ -68,13 +77,22 @@ class ZigZagEvaluator:
                 with self._quiet_zigzag():
                     energy, latency, cme = self._run_zigzag(accelerator_yaml_path)
 
-            area = self._extract_area(cme, cfg)
+            area, area_source, raw_zigzag_area = self._extract_area(cme, cfg)
+
+            if self.debug and area_source == "proxy":
+                print(
+                    "ZigZag did not return a usable area value; "
+                    "using TALOS area proxy fallback for Level 1."
+                )
 
             return EvaluationResult(
                 latency=float(latency),
                 energy=float(energy),
                 area=float(area),
                 valid=True,
+                area_source=area_source,
+                area_is_proxy=(area_source == "proxy"),
+                raw_zigzag_area=raw_zigzag_area,
             )
 
         except Exception as exc:
@@ -90,6 +108,9 @@ class ZigZagEvaluator:
                 area=float("inf"),
                 valid=False,
                 error_message=str(exc),
+                area_source="missing",
+                area_is_proxy=False,
+                raw_zigzag_area=None,
             )
 
     def _write_mapping_yaml(self, mapping: list[dict[str, Any]]) -> str:
@@ -290,38 +311,62 @@ class ZigZagEvaluator:
             }
         ]
 
-    def _extract_area(self, cme: Any, cfg: ArchitectureConfig) -> float:
+    def _area_candidates(self, cme: Any) -> list[float]:
         """
-        First try to recover area from ZigZag's returned object.
-        Fall back to a very rough analytical estimate.
+        Return direct area candidates exposed by ZigZag.
+
+        The lookup is intentionally small and explicit today, but isolated so
+        it can be extended later to inspect nested structures if needed.
         """
-        candidate_attrs = [
-            "area_total",
-            "total_area",
-            "area",
-        ]
+        candidate_attrs = ("area_total", "total_area", "area")
+        candidates: list[float] = []
 
         for attr in candidate_attrs:
             if hasattr(cme, attr):
                 value = getattr(cme, attr)
                 if isinstance(value, (int, float)):
-                    return float(value)
+                    candidates.append(float(value))
 
         if isinstance(cme, dict):
             for key in candidate_attrs:
-                if key in cme and isinstance(cme[key], (int, float)):
-                    return float(cme[key])
+                value = cme.get(key)
+                if isinstance(value, (int, float)):
+                    candidates.append(float(value))
 
-        if self.use_mock_area:
-            return self._estimate_area(cfg)
+        return candidates
 
-        raise ValueError("ZigZag did not return an area value.")
-
-    def _estimate_area(self, cfg: ArchitectureConfig) -> float:
+    def _extract_area(
+        self,
+        cme: Any,
+        cfg: ArchitectureConfig,
+    ) -> tuple[float, str, float | None]:
         """
-        Very rough placeholder area model.
+        Resolve the Level-1 third objective value and its provenance.
 
-        Replace this later with your own Level-2 IP characterization model.
+        TALOS keeps returning ``area`` for compatibility with the current
+        pipeline, but the metadata records whether the value came from ZigZag
+        or from TALOS' internal architectural cost proxy fallback.
+        """
+        candidates = self._area_candidates(cme)
+        if candidates:
+            return candidates[0], "zigzag", candidates[0]
+
+        if self.use_area_proxy_fallback:
+            return self._estimate_area_proxy(cfg), "proxy", None
+
+        raise ValueError(
+            "ZigZag did not return a usable area value and area proxy fallback "
+            "is disabled."
+        )
+
+    def _estimate_area_proxy(self, cfg: ArchitectureConfig) -> float:
+        """
+        Very rough architectural cost proxy for Level 1.
+
+        This is not physical implementation area. It is only a coarse
+        heuristic based on array and memory sizes so TALOS can still guide the
+        search when ZigZag does not expose a usable area metric. Level 2 is
+        expected to replace this with a more serious PPA re-estimation flow.
         """
         mac_count = cfg.pe_x * cfg.pe_y
 

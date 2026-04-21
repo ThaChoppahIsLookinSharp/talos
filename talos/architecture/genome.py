@@ -4,11 +4,10 @@ from dataclasses import dataclass
 import math
 from typing import Any
 
-#TODO: auto_cost_extraction=False-> means BW genomes
-#are broken. Either move this to level 2 and remove
-#these genomes or turn this true (possible more changes)
-#Congelado por ahora, luego ya vamos viendo
-#osea, congelada la implementación digo.
+# TODO: auto_cost_extraction=False means BW-related hardware costs are still
+# underspecified in Level 1. TALOS currently keeps those genes, but the third
+# objective may fall back to an internal architectural cost proxy instead of a
+# richer hardware-area estimate.
 
 @dataclass(frozen=True)
 class GeneSpec:
