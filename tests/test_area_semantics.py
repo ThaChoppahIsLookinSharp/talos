@@ -20,6 +20,16 @@ class FakeCMEWithArea:
     area = 456.0
 
 
+class FakeNestedSummary:
+    def __init__(self, total_area: float) -> None:
+        self.total_area = total_area
+
+
+class FakeNestedCME:
+    def __init__(self, area: float) -> None:
+        self.summary = FakeNestedSummary(area)
+
+
 class StubEvaluator(ZigZagEvaluator):
     def __init__(
         self,
@@ -52,7 +62,7 @@ class AreaSemanticsTests(unittest.TestCase):
         evaluator = ZigZagEvaluator(workload="dummy.onnx", workdir=str(make_workdir()))
         cfg = decode_genome(TEST_GENOME)
 
-        area, source, raw_zigzag_area = evaluator._extract_area(
+        area, source, raw_zigzag_area, zigzag_area_path = evaluator._extract_area(
             FakeCMEWithAreaTotal(),
             cfg,
         )
@@ -60,12 +70,13 @@ class AreaSemanticsTests(unittest.TestCase):
         self.assertEqual(area, 123.0)
         self.assertEqual(source, "zigzag")
         self.assertEqual(raw_zigzag_area, 123.0)
+        self.assertEqual(zigzag_area_path, "area_total")
 
     def test_extract_area_uses_zigzag_area_attribute(self) -> None:
         evaluator = ZigZagEvaluator(workload="dummy.onnx", workdir=str(make_workdir()))
         cfg = decode_genome(TEST_GENOME)
 
-        area, source, raw_zigzag_area = evaluator._extract_area(
+        area, source, raw_zigzag_area, zigzag_area_path = evaluator._extract_area(
             FakeCMEWithArea(),
             cfg,
         )
@@ -73,16 +84,37 @@ class AreaSemanticsTests(unittest.TestCase):
         self.assertEqual(area, 456.0)
         self.assertEqual(source, "zigzag")
         self.assertEqual(raw_zigzag_area, 456.0)
+        self.assertEqual(zigzag_area_path, "area")
 
     def test_extract_area_uses_dict_value(self) -> None:
         evaluator = ZigZagEvaluator(workload="dummy.onnx", workdir=str(make_workdir()))
         cfg = decode_genome(TEST_GENOME)
 
-        area, source, raw_zigzag_area = evaluator._extract_area({"area": 789.0}, cfg)
+        area, source, raw_zigzag_area, zigzag_area_path = evaluator._extract_area(
+            {"total_area": 789.0},
+            cfg,
+        )
 
         self.assertEqual(area, 789.0)
         self.assertEqual(source, "zigzag")
         self.assertEqual(raw_zigzag_area, 789.0)
+        self.assertEqual(zigzag_area_path, "total_area")
+
+    def test_extract_area_uses_nested_value(self) -> None:
+        evaluator = ZigZagEvaluator(workload="dummy.onnx", workdir=str(make_workdir()))
+
+        area, path = evaluator._extract_zigzag_area(FakeNestedCME(222.0))
+
+        self.assertEqual(area, 222.0)
+        self.assertEqual(path, "summary.total_area")
+
+    def test_extract_zigzag_area_returns_none_when_missing(self) -> None:
+        evaluator = ZigZagEvaluator(workload="dummy.onnx", workdir=str(make_workdir()))
+
+        area, path = evaluator._extract_zigzag_area({"foo": {"bar": 1}})
+
+        self.assertIsNone(area)
+        self.assertIsNone(path)
 
     def test_evaluate_prefers_zigzag_then_proxy_when_area_missing(self) -> None:
         evaluator = StubEvaluator(make_workdir(), cme={})
@@ -95,6 +127,7 @@ class AreaSemanticsTests(unittest.TestCase):
         self.assertEqual(result.area_source, "proxy")
         self.assertTrue(result.area_is_proxy)
         self.assertIsNone(result.raw_zigzag_area)
+        self.assertIsNone(result.zigzag_area_path)
 
     def test_evaluate_fails_in_zigzag_only_mode_when_area_missing(self) -> None:
         evaluator = StubEvaluator(
@@ -109,6 +142,7 @@ class AreaSemanticsTests(unittest.TestCase):
         self.assertEqual(result.area, float("inf"))
         self.assertEqual(result.area_source, "missing")
         self.assertFalse(result.area_is_proxy)
+        self.assertIsNone(result.zigzag_area_path)
         self.assertEqual(
             result.error_message,
             "ZigZag did not return a usable area value and area_policy='zigzag_only'.",
@@ -124,6 +158,7 @@ class AreaSemanticsTests(unittest.TestCase):
         self.assertEqual(result.area_source, "zigzag")
         self.assertFalse(result.area_is_proxy)
         self.assertEqual(result.raw_zigzag_area, 321.0)
+        self.assertEqual(result.zigzag_area_path, "area_total")
 
     def test_evaluate_uses_proxy_only_mode_even_if_zigzag_area_exists(self) -> None:
         evaluator = StubEvaluator(
@@ -140,6 +175,7 @@ class AreaSemanticsTests(unittest.TestCase):
         self.assertEqual(result.area_source, "proxy")
         self.assertTrue(result.area_is_proxy)
         self.assertIsNone(result.raw_zigzag_area)
+        self.assertIsNone(result.zigzag_area_path)
 
     def test_evaluate_uses_zigzag_only_mode_when_area_exists(self) -> None:
         evaluator = StubEvaluator(
@@ -155,6 +191,7 @@ class AreaSemanticsTests(unittest.TestCase):
         self.assertEqual(result.area_source, "zigzag")
         self.assertFalse(result.area_is_proxy)
         self.assertEqual(result.raw_zigzag_area, 654.0)
+        self.assertEqual(result.zigzag_area_path, "total_area")
 
 
 if __name__ == "__main__":

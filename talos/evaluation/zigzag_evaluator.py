@@ -24,6 +24,7 @@ class EvaluationResult:
     area_source: str = "missing"
     area_is_proxy: bool = False
     raw_zigzag_area: float | None = None
+    zigzag_area_path: str | None = None
     memory_cost_mode: str = "manual"
 
 
@@ -60,6 +61,7 @@ class ZigZagEvaluator:
         memory_cost_mode: str = "manual",
         workdir: str | None = None,
         debug: bool = False,
+        debug_cme: bool = False,
         lpf_limit: int = 6,
         nb_spatial_mappings_generated: int = 3,
     ) -> None:
@@ -83,6 +85,7 @@ class ZigZagEvaluator:
         )
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.debug = debug
+        self.debug_cme = debug_cme
         self.lpf_limit = lpf_limit
         self.nb_spatial_mappings_generated = nb_spatial_mappings_generated
         self.mapping_yaml_path = self._write_mapping_yaml(self.mapping)
@@ -103,12 +106,20 @@ class ZigZagEvaluator:
                     with self._zigzag_runtime_env():
                         energy, latency, cme = self._run_zigzag(accelerator_yaml_path)
 
-            area, area_source, raw_zigzag_area = self._extract_area(cme, cfg)
+            if self.debug_cme:
+                self._print_cme_inspection(cme)
+
+            area, area_source, raw_zigzag_area, zigzag_area_path = self._extract_area(
+                cme,
+                cfg,
+            )
 
             if self.debug and area_source == "proxy":
                 print(
                     "Using TALOS area proxy for the Level-1 third objective."
                 )
+            if self.debug_cme and zigzag_area_path is not None:
+                print(f"Resolved ZigZag area from path: {zigzag_area_path}")
 
             return EvaluationResult(
                 latency=float(latency),
@@ -118,6 +129,7 @@ class ZigZagEvaluator:
                 area_source=area_source,
                 area_is_proxy=(area_source == "proxy"),
                 raw_zigzag_area=raw_zigzag_area,
+                zigzag_area_path=zigzag_area_path,
                 memory_cost_mode=self.memory_cost_mode,
             )
 
@@ -141,6 +153,7 @@ class ZigZagEvaluator:
                 area_source="missing",
                 area_is_proxy=False,
                 raw_zigzag_area=None,
+                zigzag_area_path=None,
                 memory_cost_mode=self.memory_cost_mode,
             )
 
@@ -421,35 +434,165 @@ class ZigZagEvaluator:
             }
         ]
 
-    def _area_candidates(self, cme: Any) -> list[float]:
+    def _coerce_numeric_area(self, value: Any) -> float | None:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        return None
+
+    def _extract_area_from_accelerator(self, accelerator: Any) -> tuple[float | None, str | None]:
+        operational_array = getattr(accelerator, "operational_array", None)
+        operational_area = self._coerce_numeric_area(
+            getattr(operational_array, "total_area", None)
+        )
+        memory_hierarchy = getattr(accelerator, "memory_hierarchy", None)
+        mem_level_list = getattr(memory_hierarchy, "mem_level_list", None)
+        if operational_area is None or not isinstance(mem_level_list, list):
+            return None, None
+
+        total_area = operational_area
+        seen_instances: set[int] = set()
+        for level in mem_level_list:
+            instance = getattr(level, "memory_instance", None) or getattr(level, "instance", None)
+            if instance is None:
+                continue
+            instance_id = id(instance)
+            if instance_id in seen_instances:
+                continue
+            seen_instances.add(instance_id)
+            instance_area = self._coerce_numeric_area(getattr(instance, "area", None))
+            if instance_area is None:
+                return None, None
+            total_area += instance_area
+
+        return (
+            float(total_area),
+            "accelerator.operational_array.total_area + "
+            "accelerator.memory_hierarchy.mem_level_list[*].instance.area",
+        )
+
+    def _iter_zigzag_area_candidates(
+        self,
+        obj: Any,
+        *,
+        path: str,
+        depth: int,
+        max_depth: int,
+        seen: set[int],
+    ) -> Iterator[tuple[float, str]]:
         """
-        Return direct area candidates exposed by ZigZag.
-
-        The lookup is intentionally small and explicit today, but isolated so
-        it can be extended later to inspect nested structures if needed.
+        Yield candidate area values from common ZigZag result structures.
         """
-        candidate_attrs = ("area_total", "total_area", "area")
-        candidates: list[float] = []
+        obj_id = id(obj)
+        if obj_id in seen or depth > max_depth:
+            return
+        seen.add(obj_id)
 
-        for attr in candidate_attrs:
-            if hasattr(cme, attr):
-                value = getattr(cme, attr)
-                if isinstance(value, (int, float)):
-                    candidates.append(float(value))
+        candidate_names = ("area_total", "total_area", "area")
 
-        if isinstance(cme, dict):
-            for key in candidate_attrs:
-                value = cme.get(key)
-                if isinstance(value, (int, float)):
-                    candidates.append(float(value))
+        if isinstance(obj, dict):
+            for key in candidate_names:
+                value = self._coerce_numeric_area(obj.get(key))
+                if value is not None:
+                    yield value, f"{path}.{key}" if path else key
+            for key, value in obj.items():
+                next_path = f"{path}.{key}" if path else str(key)
+                yield from self._iter_zigzag_area_candidates(
+                    value,
+                    path=next_path,
+                    depth=depth + 1,
+                    max_depth=max_depth,
+                    seen=seen,
+                )
+            return
 
-        return candidates
+        if isinstance(obj, (list, tuple)):
+            for idx, item in enumerate(obj[:8]):
+                next_path = f"{path}[{idx}]"
+                yield from self._iter_zigzag_area_candidates(
+                    item,
+                    path=next_path,
+                    depth=depth + 1,
+                    max_depth=max_depth,
+                    seen=seen,
+                )
+            return
+
+        for name in candidate_names:
+            try:
+                value = self._coerce_numeric_area(getattr(obj, name, None))
+            except Exception:
+                value = None
+            if value is not None:
+                yield value, f"{path}.{name}" if path else name
+
+        accelerator = getattr(obj, "accelerator", None)
+        if accelerator is not None:
+            area, area_path = self._extract_area_from_accelerator(accelerator)
+            if area is not None and area_path is not None:
+                prefix = f"{path}." if path else ""
+                yield area, f"{prefix}{area_path}"
+
+        for name in ("results", "result", "summary", "cme", "core", "accelerator"):
+            try:
+                value = getattr(obj, name, None)
+            except Exception:
+                value = None
+            if value is None:
+                continue
+            next_path = f"{path}.{name}" if path else name
+            yield from self._iter_zigzag_area_candidates(
+                value,
+                path=next_path,
+                depth=depth + 1,
+                max_depth=max_depth,
+                seen=seen,
+            )
+
+    def _extract_zigzag_area(self, cme: Any) -> tuple[float | None, str | None]:
+        for value, path in self._iter_zigzag_area_candidates(
+            cme,
+            path="",
+            depth=0,
+            max_depth=4,
+            seen=set(),
+        ):
+            cleaned_path = path[1:] if path.startswith(".") else path
+            return value, cleaned_path
+        return None, None
+
+    def _summarize_cme(self, cme: Any) -> str:
+        lines: list[str] = [f"type={type(cme)}"]
+        if isinstance(cme, list):
+            lines.append(f"len={len(cme)}")
+            for idx, item in enumerate(cme[:3]):
+                lines.append(f"[{idx}] type={type(item)}")
+                if isinstance(item, tuple):
+                    lines.append(f"[{idx}] tuple_len={len(item)}")
+        elif isinstance(cme, dict):
+            lines.append(f"keys={list(cme.keys())[:12]}")
+        else:
+            attrs = [a for a in dir(cme) if not a.startswith("_")]
+            interesting = [
+                a for a in attrs if any(tok in a.lower() for tok in ("area", "energy", "lat", "mem", "cost"))
+            ]
+            lines.append(f"attrs={interesting[:12]}")
+        return " | ".join(lines)
+
+    def _print_cme_inspection(self, cme: Any) -> None:
+        print(f"CME inspection: {self._summarize_cme(cme)}")
+        area, path = self._extract_zigzag_area(cme)
+        if area is None:
+            print("CME area inspection: no usable ZigZag area found.")
+        else:
+            print(f"CME area inspection: found area={area} at {path}")
 
     def _extract_area(
         self,
         cme: Any,
         cfg: ArchitectureConfig,
-    ) -> tuple[float, str, float | None]:
+    ) -> tuple[float, str, float | None, str | None]:
         """
         Resolve the Level-1 third objective value and its provenance.
 
@@ -458,14 +601,14 @@ class ZigZagEvaluator:
         or from TALOS' internal architectural cost proxy fallback.
         """
         if self.area_policy == "proxy_only":
-            return self._estimate_area_proxy(cfg), "proxy", None
+            return self._estimate_area_proxy(cfg), "proxy", None, None
 
-        candidates = self._area_candidates(cme)
-        if candidates:
-            return candidates[0], "zigzag", candidates[0]
+        zigzag_area, zigzag_area_path = self._extract_zigzag_area(cme)
+        if zigzag_area is not None:
+            return zigzag_area, "zigzag", zigzag_area, zigzag_area_path
 
         if self.area_policy == "prefer_zigzag_then_proxy":
-            return self._estimate_area_proxy(cfg), "proxy", None
+            return self._estimate_area_proxy(cfg), "proxy", None, None
 
         raise ValueError(
             "ZigZag did not return a usable area value and area_policy='zigzag_only'."
