@@ -33,18 +33,24 @@ class ZigZagEvaluator:
     only consumes decoded architecture configs and runs ZigZag.
 
     Level 1 keeps the third objective exposed as ``area`` for compatibility,
-    but its provenance is tracked explicitly. When ZigZag exposes a usable
-    area estimate, TALOS uses it directly. Otherwise TALOS can fall back to
-    an internal architectural cost proxy that is only meant to guide the
-    Level-1 search, not to represent physical implementation area.
+    but its provenance is tracked explicitly. The area policy decides whether
+    TALOS uses a usable ZigZag area estimate, its internal architectural cost
+    proxy, or a preference order between both. That proxy is only meant to
+    guide the Level-1 search, not to represent physical implementation area.
     """
+
+    VALID_AREA_POLICIES = {
+        "zigzag_only",
+        "prefer_zigzag_then_proxy",
+        "proxy_only",
+    }
 
     def __init__(
         self,
         workload: str,
         mapping: list[dict[str, Any]] | None = None,
         opt: str = "EDP",
-        use_area_proxy_fallback: bool = True,
+        area_policy: str = "prefer_zigzag_then_proxy",
         workdir: str | None = None,
         debug: bool = False,
         lpf_limit: int = 6,
@@ -53,7 +59,12 @@ class ZigZagEvaluator:
         self.workload = workload
         self.mapping = mapping if mapping is not None else self._default_mapping()
         self.opt = opt
-        self.use_area_proxy_fallback = use_area_proxy_fallback
+        if area_policy not in self.VALID_AREA_POLICIES:
+            valid = ", ".join(sorted(self.VALID_AREA_POLICIES))
+            raise ValueError(
+                f"Unknown area_policy {area_policy!r}. Expected one of: {valid}."
+            )
+        self.area_policy = area_policy
         self.workdir = (
             Path(workdir) if workdir is not None else Path.cwd() / ".talos_zigzag"
         )
@@ -81,8 +92,7 @@ class ZigZagEvaluator:
 
             if self.debug and area_source == "proxy":
                 print(
-                    "ZigZag did not return a usable area value; "
-                    "using TALOS area proxy fallback for Level 1."
+                    "Using TALOS area proxy for the Level-1 third objective."
                 )
 
             return EvaluationResult(
@@ -347,16 +357,18 @@ class ZigZagEvaluator:
         pipeline, but the metadata records whether the value came from ZigZag
         or from TALOS' internal architectural cost proxy fallback.
         """
+        if self.area_policy == "proxy_only":
+            return self._estimate_area_proxy(cfg), "proxy", None
+
         candidates = self._area_candidates(cme)
         if candidates:
             return candidates[0], "zigzag", candidates[0]
 
-        if self.use_area_proxy_fallback:
+        if self.area_policy == "prefer_zigzag_then_proxy":
             return self._estimate_area_proxy(cfg), "proxy", None
 
         raise ValueError(
-            "ZigZag did not return a usable area value and area proxy fallback "
-            "is disabled."
+            "ZigZag did not return a usable area value and area_policy='zigzag_only'."
         )
 
     def _estimate_area_proxy(self, cfg: ArchitectureConfig) -> float:
