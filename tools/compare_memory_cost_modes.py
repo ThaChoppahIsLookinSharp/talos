@@ -6,10 +6,11 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from talos.architecture.genome import default_genome
 from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
 
 
-GENOME = [2, 2, 3, 2, 3, 2, 3, 3]
+GENOME = default_genome()
 
 
 def repo_root() -> Path:

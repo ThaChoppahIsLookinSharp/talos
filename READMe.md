@@ -16,6 +16,22 @@ Results are a set of abstract architectures.
 Level 2, using these abstract architectures.
 
 ---
+## Architecture Genome
+
+The current Level 1 genome has 5 genes:
+
+- `pe_x_code`
+- `pe_y_code`
+- `rf_size_code`
+- `gb_size_code`
+- `gb_served_dims_code`
+
+Memory bandwidth is no longer encoded as GA genes. TALOS emits fixed
+`bandwidth_min`/`bandwidth_max` ranges per memory level because ZigZag requires
+those fields in the accelerator YAML, and ZigZag then uses those port ranges in
+its transfer and stall model.
+
+---
 ## Installation
 
 I use Python 3.13, but 3.11+ should be fine.

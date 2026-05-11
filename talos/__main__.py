@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from talos.architecture.genome import default_genome
 from talos.evaluation.objective_adapter import ObjectiveAdapter
 from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
 
@@ -31,8 +32,8 @@ def run_smoke_test(
     )
     adapter = ObjectiveAdapter(evaluator)
 
-    # Test genome matching the current 8-gene TALOS setup
-    genome = [2, 2, 3, 2, 3, 2, 3, 3]
+    # Test genome matching the current TALOS setup.
+    genome = default_genome()
 
     print("Evaluating genome:", genome)
 

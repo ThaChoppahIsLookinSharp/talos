@@ -4,10 +4,11 @@ import uuid
 import unittest
 from pathlib import Path
 
+from talos.architecture.genome import default_genome, gene_names
 from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
 
 
-TEST_GENOME = [2, 2, 3, 2, 3, 2, 3, 3]
+TEST_GENOME = default_genome()
 TMP_ROOT = Path(__file__).resolve().parents[1] / ".talos_zigzag" / "memory_cost_tests"
 
 
@@ -46,6 +47,8 @@ class MemoryCostModeTests(unittest.TestCase):
         self.assertEqual(gb["w_cost"], 10.0)
         self.assertEqual(gb["area"], 10.0)
         self.assertFalse(gb["auto_cost_extraction"])
+        self.assertEqual(gb["ports"][0]["bandwidth_min"], 64)
+        self.assertEqual(gb["ports"][0]["bandwidth_max"], 1024)
 
     def test_auto_mode_enables_zigzag_memory_cost_extraction(self) -> None:
         evaluator = ZigZagEvaluator(
@@ -102,6 +105,14 @@ class MemoryCostModeTests(unittest.TestCase):
         self.assertEqual(auto_accelerator["name"], "talos_candidate")
         self.assertFalse(manual_accelerator["memories"]["rf_i1"]["auto_cost_extraction"])
         self.assertTrue(auto_accelerator["memories"]["rf_i1"]["auto_cost_extraction"])
+
+    def test_bandwidth_is_not_encoded_as_a_genome_gene(self) -> None:
+        names = gene_names()
+
+        self.assertEqual(len(TEST_GENOME), len(names))
+        self.assertNotIn("rf_bw_code", names)
+        self.assertNotIn("gb_bw_code", names)
+        self.assertNotIn("dram_bw_code", names)
 
 
 if __name__ == "__main__":

@@ -4,11 +4,11 @@ import uuid
 import unittest
 from pathlib import Path
 
-from talos.architecture.genome import decode_genome
+from talos.architecture.genome import decode_genome, default_genome
 from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
 
 
-TEST_GENOME = [2, 2, 3, 2, 3, 2, 3, 3]
+TEST_GENOME = default_genome()
 TMP_ROOT = Path(__file__).resolve().parents[1] / ".talos_zigzag" / "test_runs"
 
 

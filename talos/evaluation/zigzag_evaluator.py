@@ -13,6 +13,14 @@ import yaml
 
 from talos.architecture.genome import ArchitectureConfig, decode_genome
 
+# ZigZag 3.8.5 requires every port to declare bandwidth_min/max. TALOS keeps
+# those as fixed level caps so the GA no longer optimizes memory BW genes.
+MEMORY_BANDWIDTH_RANGES_BITS = {
+    "rf": (8, 256),
+    "gb": (64, 1024),
+    "dram": (64, 2048),
+}
+
 
 @dataclass
 class EvaluationResult:
@@ -251,12 +259,18 @@ class ZigZagEvaluator:
         print("Using accelerator file:", accelerator_yaml_path)
         print(Path(accelerator_yaml_path).read_text(encoding="utf-8"))
 
-    def _rw_port(self, name: str, bw: int, allocations: list[str]) -> dict[str, Any]:
+    def _rw_port(
+        self,
+        name: str,
+        bandwidth_range: tuple[int, int],
+        allocations: list[str],
+    ) -> dict[str, Any]:
+        bw_min, bw_max = bandwidth_range
         return {
             "name": name,
             "type": "read_write",
-            "bandwidth_min": bw,
-            "bandwidth_max": bw,
+            "bandwidth_min": bw_min,
+            "bandwidth_max": bw_max,
             "allocation": allocations,
         }
 
@@ -327,7 +341,7 @@ class ZigZagEvaluator:
                     "ports": [
                         self._rw_port(
                             "rw_port_1",
-                            cfg.rf_bw_bits,
+                            MEMORY_BANDWIDTH_RANGES_BITS["rf"],
                             ["I1, tl", "I1, fh"],
                         )
                     ],
@@ -346,7 +360,7 @@ class ZigZagEvaluator:
                     "ports": [
                         self._rw_port(
                             "rw_port_1",
-                            cfg.rf_bw_bits,
+                            MEMORY_BANDWIDTH_RANGES_BITS["rf"],
                             ["I2, tl", "I2, fh"],
                         )
                     ],
@@ -365,7 +379,7 @@ class ZigZagEvaluator:
                     "ports": [
                         self._rw_port(
                             "rw_port_1",
-                            cfg.rf_bw_bits,
+                            MEMORY_BANDWIDTH_RANGES_BITS["rf"],
                             ["O, fh", "O, fl", "O, th", "O, tl"],
                         )
                     ],
@@ -384,7 +398,7 @@ class ZigZagEvaluator:
                     "ports": [
                         self._rw_port(
                             "rw_port_1",
-                            cfg.gb_bw_bits,
+                            MEMORY_BANDWIDTH_RANGES_BITS["gb"],
                             [
                                 "I1, tl", "I1, fh",
                                 "I2, tl", "I2, fh",
@@ -407,7 +421,7 @@ class ZigZagEvaluator:
                     "ports": [
                         self._rw_port(
                             "rw_port_1",
-                            cfg.dram_bw_bits,
+                            MEMORY_BANDWIDTH_RANGES_BITS["dram"],
                             [
                                 "I1, tl", "I1, fh",
                                 "I2, tl", "I2, fh",
