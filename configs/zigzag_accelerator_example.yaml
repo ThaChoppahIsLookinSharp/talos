@@ -1,0 +1,91 @@
+name: zigzag_level2_example
+operational_array:
+  is_imc: false
+  unit_energy: 1.0
+  unit_area: 1.0
+  dimensions: [D1, D2]
+  sizes: [4, 4]
+  imc_type: null
+  adc_resolution: 0
+  bit_serial_precision: null
+memories:
+  rf_i1:
+    size: 512
+    r_cost: 1.0
+    w_cost: 1.0
+    area: 1.0
+    latency: 1
+    mem_type: sram
+    auto_cost_extraction: false
+    operands: [I1]
+    ports:
+      - name: rw_port_1
+        type: read_write
+        bandwidth_min: 64
+        bandwidth_max: 64
+        allocation: ["I1, tl", "I1, fh"]
+    served_dimensions: []
+  rf_i2:
+    size: 512
+    r_cost: 1.0
+    w_cost: 1.0
+    area: 1.0
+    latency: 1
+    mem_type: sram
+    auto_cost_extraction: false
+    operands: [I2]
+    ports:
+      - name: rw_port_1
+        type: read_write
+        bandwidth_min: 64
+        bandwidth_max: 64
+        allocation: ["I2, tl", "I2, fh"]
+    served_dimensions: []
+  rf_o:
+    size: 512
+    r_cost: 1.0
+    w_cost: 1.0
+    area: 1.0
+    latency: 1
+    mem_type: sram
+    auto_cost_extraction: false
+    operands: [O]
+    ports:
+      - name: rw_port_1
+        type: read_write
+        bandwidth_min: 64
+        bandwidth_max: 64
+        allocation: ["O, fh", "O, fl", "O, th", "O, tl"]
+    served_dimensions: []
+  gb:
+    size: 65536
+    r_cost: 10.0
+    w_cost: 10.0
+    area: 10.0
+    latency: 1
+    mem_type: sram
+    auto_cost_extraction: false
+    operands: [I1, I2, O]
+    ports:
+      - name: rw_port_1
+        type: read_write
+        bandwidth_min: 256
+        bandwidth_max: 256
+        allocation: ["I1, tl", "I1, fh", "I2, tl", "I2, fh", "O, fh", "O, fl", "O, th", "O, tl"]
+    served_dimensions: [D1, D2]
+  dram:
+    size: 1000000000000
+    r_cost: 1000.0
+    w_cost: 1000.0
+    area: 0.0
+    latency: 1
+    mem_type: dram
+    auto_cost_extraction: false
+    operands: [I1, I2, O]
+    ports:
+      - name: rw_port_1
+        type: read_write
+        bandwidth_min: 1024
+        bandwidth_max: 1024
+        allocation: ["I1, tl", "I1, fh", "I2, tl", "I2, fh", "O, fh", "O, fl", "O, th", "O, tl"]
+    served_dimensions: [D1, D2]
