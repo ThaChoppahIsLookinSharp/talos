@@ -5,6 +5,7 @@ from talos.level2.genome import (
     Level2GeneSpec,
     Level2GenomeSpec,
 )
+from talos.level2.problem import Level2PymooProblem
 
 __all__ = [
     "ImplementedAccelerator",
@@ -13,4 +14,5 @@ __all__ = [
     "Level2Evaluator",
     "Level2GeneSpec",
     "Level2GenomeSpec",
+    "Level2PymooProblem",
 ]

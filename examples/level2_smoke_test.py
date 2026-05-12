@@ -10,7 +10,7 @@ from talos.architecture.genome import decode_genome, default_genome
 from talos.architecture.level1_importer import abstract_accelerator_from_level1_config
 from talos.architecture.zigzag_yaml_importer import abstract_accelerator_from_zigzag_yaml
 from talos.ip import IPPool
-from talos.level2 import Level2Evaluator, Level2GenomeSpec
+from talos.level2 import Level2Evaluator, Level2GenomeSpec, Level2PymooProblem
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +24,13 @@ def run_level2_flow(label: str, accelerator) -> None:
     genome = spec.default_genome()
     implemented = spec.decode(genome)
     result = Level2Evaluator().evaluate(implemented)
+    problem = Level2PymooProblem(
+        accelerator=accelerator,
+        ip_pool=pool,
+        objective_names=["area", "power", "delay", "inv_throughput"],
+    )
+    problem_out: dict[str, object] = {}
+    problem._evaluate(problem.spec.default_genome(), problem_out)
 
     print(f"=== {label} ===")
     print(f"accelerator={accelerator.name}")
@@ -37,6 +44,7 @@ def run_level2_flow(label: str, accelerator) -> None:
     print(f"delay={result.delay}")
     print(f"throughput={result.throughput}")
     print(f"error_message={result.error_message}")
+    print(f"problem_objectives={problem_out['F']}")
     print()
 
 
