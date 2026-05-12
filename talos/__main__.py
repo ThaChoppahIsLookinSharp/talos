@@ -6,6 +6,7 @@ from pathlib import Path
 from talos.architecture.genome import default_genome
 from talos.evaluation.objective_adapter import ObjectiveAdapter
 from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
+from talos.manual_validation import select_manual_reference_genome
 
 
 def repo_root() -> Path:
@@ -32,8 +33,11 @@ def run_smoke_test(
     )
     adapter = ObjectiveAdapter(evaluator)
 
-    # Test genome matching the current TALOS setup.
-    genome = default_genome()
+    genome = (
+        select_manual_reference_genome()
+        if memory_cost_mode == "manual"
+        else None
+    ) or default_genome()
 
     print("Evaluating genome:", genome)
 
@@ -45,7 +49,15 @@ def run_smoke_test(
     print(f"  Latency: {latency}")
     print(f"  Energy : {energy}")
     print(f"  Area   : {area}")
-    print(f"  MemCost: {adapter.evaluate(genome).memory_cost_mode}")
+    result = adapter.evaluate(genome)
+    print(f"  MemCost: {result.memory_cost_mode}")
+    print(f"  AreaSrc: {result.area_source}")
+    print(f"  Proxy  : {result.area_is_proxy}")
+    print(f"  ZigArea: {result.raw_zigzag_area}")
+    print(f"  ZigPath: {result.zigzag_area_path}")
+    print(f"  Policy : {evaluator.area_policy}")
+    if not result.valid:
+        print(f"  Error  : {result.error_message}")
 
     print("\nFull objective vector:")
     print(" ", adapter.vector(genome))
@@ -139,7 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--memory-cost-mode",
-        choices=["manual", "zigzag_auto"],
+        choices=["manual", "hybrid_auto_gb", "zigzag_auto"],
         default="manual",
         help="Memory cost model for Level 1",
     )

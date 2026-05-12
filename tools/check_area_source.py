@@ -11,8 +11,9 @@ from talos.manual_validation import (
     fallback_manual_diagnostic_genome,
     find_first_valid_manual_genome,
     format_validation_summary,
-    known_valid_manual_genome,
     parse_genome_arg,
+    select_manual_reference_genome,
+    evaluate_genome_with_timeout,
 )
 
 
@@ -20,31 +21,8 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def _resolve_genome(genome_arg: str | None) -> tuple[list[int], str]:
-    if genome_arg is not None:
-        return parse_genome_arg(genome_arg), "cli"
-
-    known = known_valid_manual_genome()
-    if known is not None:
-        return known, "known_valid_manual"
-
-    workload = repo_root() / "workloads" / "alexnet.onnx"
-    found, attempts = find_first_valid_manual_genome(
-        workload_path=str(workload),
-        workdir=str(repo_root() / ".talos_zigzag" / "memory_cost_compare" / "manual_search"),
-        timeout_seconds=10.0,
-    )
-    if found is not None:
-        return found.genome, "search_valid_manual"
-
-    print("No valid manual genome found in the conservative candidate set.")
-    print(f"Completed search attempts: {len(attempts)}")
-    fallback = fallback_manual_diagnostic_genome()
-    return fallback, "fallback_diagnostic_candidate"
-
-
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Compare TALOS memory cost modes")
+    parser = argparse.ArgumentParser(description="Inspect area source in manual mode")
     parser.add_argument(
         "--genome",
         type=str,
@@ -53,31 +31,55 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_genome(genome_arg: str | None) -> tuple[list[int], str]:
+    if genome_arg is not None:
+        return parse_genome_arg(genome_arg), "cli"
+
+    known = select_manual_reference_genome()
+    if known is not None:
+        return known, "known_valid_manual"
+
+    workload = repo_root() / "workloads" / "alexnet.onnx"
+    found, _attempts = find_first_valid_manual_genome(
+        workload_path=str(workload),
+        workdir=str(repo_root() / ".talos_zigzag" / "check_area_source" / "manual_search"),
+        timeout_seconds=10.0,
+    )
+    if found is not None:
+        return found.genome, "search_valid_manual"
+
+    return fallback_manual_diagnostic_genome(), "fallback_diagnostic_candidate"
+
+
 def main() -> None:
     args = build_parser().parse_args()
     genome, genome_source = _resolve_genome(args.genome)
     workload = repo_root() / "workloads" / "alexnet.onnx"
-    base_workdir = repo_root() / ".talos_zigzag" / "memory_cost_compare"
+    base_workdir = repo_root() / ".talos_zigzag" / "check_area_source"
 
     print(f"reference_genome_source={genome_source}")
     print(f"reference_genome={genome}")
     print()
 
-    for mode in ("manual", "hybrid_auto_gb", "zigzag_auto"):
-        from talos.manual_validation import evaluate_genome_with_timeout
-
-        print(f"=== memory_cost_mode={mode} ===")
+    for area_policy in ("prefer_zigzag_then_proxy", "zigzag_only"):
+        print(f"=== area_policy={area_policy} ===")
         summary = evaluate_genome_with_timeout(
             genome,
             workload_path=str(workload),
-            workdir=str(base_workdir / mode),
-            memory_cost_mode=mode,
-            area_policy="prefer_zigzag_then_proxy",
+            workdir=str(base_workdir / area_policy),
+            memory_cost_mode="manual",
+            area_policy=area_policy,
             lpf_limit=1,
             nb_spatial_mappings_generated=1,
             timeout_seconds=15.0,
         )
         print(format_validation_summary(summary))
+        if summary.area_source == "zigzag" and not summary.area_is_proxy:
+            print("interpretation=ZigZag exposed usable area and TALOS used it.")
+        elif summary.area_source == "proxy" and summary.area_is_proxy:
+            print("interpretation=TALOS fell back to its internal proxy area.")
+        elif summary.area_source == "missing":
+            print("interpretation=No usable area made it through this path.")
         print()
 
 

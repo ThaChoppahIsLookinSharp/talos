@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from talos.architecture.genome import gene_bounds
 from talos.evaluation.zigzag_evaluator import EvaluationResult, ZigZagEvaluator
 
 
@@ -22,10 +23,15 @@ class ObjectiveAdapter:
     def clear_cache(self) -> None:
         self._cache.clear()
 
-    def _normalize_key(self, genome: list[float]) -> tuple[float, ...]:
-        # The NSGA-II implementation may pass floats even for discrete genes.
-        # Rounding here makes the cache robust to tiny floating-point noise.
-        return tuple(round(float(g), 8) for g in genome)
+    def _normalize_key(self, genome: list[float]) -> tuple[int, ...]:
+        # pymoo explores a continuous space, but TALOS decodes every gene as a
+        # clamped catalog index. Cache by that canonical discrete architecture
+        # so equivalent raw floats do not trigger duplicate ZigZag runs.
+        discrete_key: list[int] = []
+        for gene, (lower, upper) in zip(genome, gene_bounds(), strict=True):
+            code = int(round(float(gene)))
+            discrete_key.append(max(lower, min(code, upper)))
+        return tuple(discrete_key)
 
     def _get_result(self, genome: list[float]) -> EvaluationResult:
         key = self._normalize_key(genome)

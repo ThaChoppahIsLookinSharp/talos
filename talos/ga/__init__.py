@@ -1,4 +1,8 @@
-from talos.ga.nsga2_runner import NSGA2RunResult, run_nsga2
+try:
+    from talos.ga.nsga2_runner import NSGA2RunResult, run_nsga2
+except ModuleNotFoundError:
+    NSGA2RunResult = None
+    run_nsga2 = None
 from talos.ga.pymoo_runner import (
     PymooRunArtifacts,
     TalosPymooProblem,

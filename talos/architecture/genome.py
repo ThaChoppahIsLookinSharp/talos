@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import math
 from typing import Any
 
+from talos.architecture.memory_specs import GB_SIZE_OPTIONS, RF_SIZE_OPTIONS
+
 @dataclass(frozen=True)
 class GeneSpec:
     name: str
@@ -21,8 +23,6 @@ class ArchitectureConfig:
 
 PE_X_OPTIONS = [4, 8, 16, 32]
 PE_Y_OPTIONS = [4, 8, 16, 32]
-RF_SIZE_OPTIONS = [64, 128, 256, 512, 1024, 2048]
-GB_SIZE_OPTIONS = [8192, 16384, 32768, 65536, 131072]
 GB_SERVED_DIMS_OPTIONS = [[], ["D1"], ["D2"], ["D1", "D2"]]
 
 
@@ -45,7 +45,7 @@ def gene_bounds() -> list[tuple[int, int]]:
 
 
 def default_genome() -> list[int]:
-    # Preserve the current manual example, minus BW genes inferred by ZigZag.
+    # Keep a middle RF option now that Level-1 RF capacities are more realistic.
     return [2, 2, 3, 3, 3]
 
 

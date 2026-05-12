@@ -8,18 +8,19 @@ import logging
 import os
 from pathlib import Path
 import sys
+import sysconfig
 from typing import Any
 import yaml
 
+from talos.architecture.memory_specs import (
+    DRAM_BANDWIDTH_RANGE_BITS,
+    GB_BANDWIDTH_MIN_BITS,
+    RF_BANDWIDTH_MIN_BITS,
+    derive_gb_bandwidth_max_bits,
+    derive_rf_bandwidth_max_bits,
+    validate_rf_cacti_compatibility,
+)
 from talos.architecture.genome import ArchitectureConfig, decode_genome
-
-# ZigZag 3.8.5 requires every port to declare bandwidth_min/max. TALOS keeps
-# those as fixed level caps so the GA no longer optimizes memory BW genes.
-MEMORY_BANDWIDTH_RANGES_BITS = {
-    "rf": (8, 256),
-    "gb": (64, 1024),
-    "dram": (64, 2048),
-}
 
 
 @dataclass
@@ -57,6 +58,7 @@ class ZigZagEvaluator:
     }
     VALID_MEMORY_COST_MODES = {
         "manual",
+        "hybrid_auto_gb",
         "zigzag_auto",
     }
 
@@ -149,7 +151,7 @@ class ZigZagEvaluator:
                 traceback.print_exc()
 
             error_message = str(exc)
-            if self.memory_cost_mode == "zigzag_auto":
+            if self._uses_zigzag_auto_costs():
                 error_message = self._format_memory_cost_mode_error(exc)
 
             return EvaluationResult(
@@ -227,21 +229,27 @@ class ZigZagEvaluator:
         When the PATH points to a different interpreter, auto memory cost
         extraction can fail even if the current TALOS venv is correctly set up.
         """
-        if self.memory_cost_mode != "zigzag_auto":
+        if not self._uses_zigzag_auto_costs():
             yield
             return
 
-        python_executable = Path(sys.executable).resolve()
+        python_executable = Path(sys.executable)
         python_dir = str(python_executable.parent)
-        site_packages = str(python_executable.parent.parent / "Lib" / "site-packages")
+        site_package_paths = {
+            sysconfig.get_paths().get("purelib"),
+            sysconfig.get_paths().get("platlib"),
+        }
         repo_root = str(Path(__file__).resolve().parents[2])
         previous_path = os.environ.get("PATH", "")
         previous_pythonpath = os.environ.get("PYTHONPATH", "")
         os.environ["PATH"] = os.pathsep.join([python_dir, previous_path])
+        pythonpath_entries = [
+            path for path in site_package_paths if path
+        ] + [repo_root]
         os.environ["PYTHONPATH"] = os.pathsep.join(
-            [site_packages, repo_root, previous_pythonpath]
+            [*pythonpath_entries, previous_pythonpath]
             if previous_pythonpath
-            else [site_packages, repo_root]
+            else pythonpath_entries
         )
         try:
             yield
@@ -274,6 +282,18 @@ class ZigZagEvaluator:
             "allocation": allocations,
         }
 
+    def _uses_zigzag_auto_costs(self) -> bool:
+        return self.memory_cost_mode in {"zigzag_auto", "hybrid_auto_gb"}
+
+    def _memory_uses_auto_cost(self, memory_name: str) -> bool:
+        if self.memory_cost_mode == "manual":
+            return False
+        if self.memory_cost_mode == "zigzag_auto":
+            return True
+        if self.memory_cost_mode == "hybrid_auto_gb":
+            return memory_name == "gb"
+        raise ValueError(f"Unsupported memory_cost_mode {self.memory_cost_mode!r}.")
+
     def build_accelerator_from_genome(self, genome: list[float]) -> dict[str, Any]:
         """Build the accelerator description used for the given TALOS genome."""
         return self._build_accelerator(decode_genome(genome))
@@ -286,6 +306,7 @@ class ZigZagEvaluator:
     def _memory_cost_fields(
         self,
         *,
+        memory_name: str,
         size_bits: int,
         r_cost: float,
         w_cost: float,
@@ -293,7 +314,7 @@ class ZigZagEvaluator:
         latency: int,
         mem_type: str,
     ) -> dict[str, Any]:
-        if self.memory_cost_mode == "manual":
+        if not self._memory_uses_auto_cost(memory_name):
             return {
                 "size": size_bits,
                 "r_cost": r_cost,
@@ -315,6 +336,20 @@ class ZigZagEvaluator:
         }
 
     def _build_accelerator(self, cfg: ArchitectureConfig) -> dict[str, Any]:
+        rf_bandwidth_range = (
+            RF_BANDWIDTH_MIN_BITS,
+            derive_rf_bandwidth_max_bits(cfg.rf_size_bits),
+        )
+        gb_bandwidth_range = (
+            GB_BANDWIDTH_MIN_BITS,
+            derive_gb_bandwidth_max_bits(cfg.gb_size_bits),
+        )
+        if self._memory_uses_auto_cost("rf_i1"):
+            validate_rf_cacti_compatibility(
+                cfg.rf_size_bits,
+                rf_bandwidth_range[1],
+            )
+
         accelerator = {
             "name": "talos_candidate",
             "operational_array": {
@@ -330,6 +365,7 @@ class ZigZagEvaluator:
             "memories": {
                 "rf_i1": {
                     **self._memory_cost_fields(
+                        memory_name="rf_i1",
                         size_bits=cfg.rf_size_bits,
                         r_cost=1.0,
                         w_cost=1.0,
@@ -341,7 +377,7 @@ class ZigZagEvaluator:
                     "ports": [
                         self._rw_port(
                             "rw_port_1",
-                            MEMORY_BANDWIDTH_RANGES_BITS["rf"],
+                            rf_bandwidth_range,
                             ["I1, tl", "I1, fh"],
                         )
                     ],
@@ -349,6 +385,7 @@ class ZigZagEvaluator:
                 },
                 "rf_i2": {
                     **self._memory_cost_fields(
+                        memory_name="rf_i2",
                         size_bits=cfg.rf_size_bits,
                         r_cost=1.0,
                         w_cost=1.0,
@@ -360,7 +397,7 @@ class ZigZagEvaluator:
                     "ports": [
                         self._rw_port(
                             "rw_port_1",
-                            MEMORY_BANDWIDTH_RANGES_BITS["rf"],
+                            rf_bandwidth_range,
                             ["I2, tl", "I2, fh"],
                         )
                     ],
@@ -368,6 +405,7 @@ class ZigZagEvaluator:
                 },
                 "rf_o": {
                     **self._memory_cost_fields(
+                        memory_name="rf_o",
                         size_bits=cfg.rf_size_bits,
                         r_cost=1.0,
                         w_cost=1.0,
@@ -379,7 +417,7 @@ class ZigZagEvaluator:
                     "ports": [
                         self._rw_port(
                             "rw_port_1",
-                            MEMORY_BANDWIDTH_RANGES_BITS["rf"],
+                            rf_bandwidth_range,
                             ["O, fh", "O, fl", "O, th", "O, tl"],
                         )
                     ],
@@ -387,6 +425,7 @@ class ZigZagEvaluator:
                 },
                 "gb": {
                     **self._memory_cost_fields(
+                        memory_name="gb",
                         size_bits=cfg.gb_size_bits,
                         r_cost=10.0,
                         w_cost=10.0,
@@ -398,7 +437,7 @@ class ZigZagEvaluator:
                     "ports": [
                         self._rw_port(
                             "rw_port_1",
-                            MEMORY_BANDWIDTH_RANGES_BITS["gb"],
+                            gb_bandwidth_range,
                             [
                                 "I1, tl", "I1, fh",
                                 "I2, tl", "I2, fh",
@@ -410,6 +449,7 @@ class ZigZagEvaluator:
                 },
                 "dram": {
                     **self._memory_cost_fields(
+                        memory_name="dram",
                         size_bits=10**12,
                         r_cost=1000.0,
                         w_cost=1000.0,
@@ -421,7 +461,7 @@ class ZigZagEvaluator:
                     "ports": [
                         self._rw_port(
                             "rw_port_1",
-                            MEMORY_BANDWIDTH_RANGES_BITS["dram"],
+                            DRAM_BANDWIDTH_RANGE_BITS,
                             [
                                 "I1, tl", "I1, fh",
                                 "I2, tl", "I2, fh",
@@ -652,6 +692,6 @@ class ZigZagEvaluator:
                 f"{base} "
                 "ZigZag 3.8.5 memory auto-cost extraction is currently experimental in this "
                 "Windows environment: its CACTI helper uses Unix-specific commands and path "
-                "assumptions, so `memory_cost_mode='zigzag_auto'` may fail at runtime."
+                "assumptions, so auto memory-cost modes may fail at runtime."
             )
         return base

@@ -8,9 +8,28 @@ from talos.architecture.genome import (
     gene_bounds,
     gene_names,
 )
+from talos.architecture.memory_specs import (
+    DRAM_BANDWIDTH_RANGE_BITS,
+    GB_BANDWIDTH_MIN_BITS,
+    GB_SIZE_OPTIONS,
+    RF_BANDWIDTH_MIN_BITS,
+    RF_SIZE_OPTIONS,
+    bits_to_bytes,
+    bytes_to_bits,
+    derive_gb_bandwidth_max_bits,
+    derive_rf_bandwidth_max_bits,
+    validate_rf_cacti_compatibility,
+)
 
 __all__ = [
     "ArchitectureConfig",
+    "bits_to_bytes",
+    "bytes_to_bits",
+    "derive_gb_bandwidth_max_bits",
+    "derive_rf_bandwidth_max_bits",
+    "DRAM_BANDWIDTH_RANGE_BITS",
+    "GB_BANDWIDTH_MIN_BITS",
+    "GB_SIZE_OPTIONS",
     "GeneSpec",
     "GENOME_LENGTH",
     "GENOME_SPEC",
@@ -18,4 +37,7 @@ __all__ = [
     "default_genome",
     "gene_bounds",
     "gene_names",
+    "RF_BANDWIDTH_MIN_BITS",
+    "RF_SIZE_OPTIONS",
+    "validate_rf_cacti_compatibility",
 ]

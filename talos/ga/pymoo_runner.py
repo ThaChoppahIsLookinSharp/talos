@@ -10,13 +10,36 @@ import os
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-from pymoo.algorithms.moo.nsga2 import NSGA2
-from pymoo.config import Config
-from pymoo.core.problem import ElementwiseProblem, StarmapParallelization
-from pymoo.optimize import minimize
+try:
+    import numpy as np
+except ModuleNotFoundError:
+    np = None
 
-from talos.architecture.genome import GENOME_LENGTH, gene_bounds, gene_names
+try:
+    from pymoo.algorithms.moo.nsga2 import NSGA2
+    from pymoo.config import Config
+    from pymoo.core.problem import ElementwiseProblem, StarmapParallelization
+    from pymoo.optimize import minimize
+except ModuleNotFoundError:
+    NSGA2 = None
+    Config = None
+
+    class ElementwiseProblem:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            raise ModuleNotFoundError("pymoo is required to run TALOS GA workflows.")
+
+    class StarmapParallelization:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            raise ModuleNotFoundError("pymoo is required to run TALOS GA workflows.")
+
+    def minimize(*args: Any, **kwargs: Any):
+        raise ModuleNotFoundError("pymoo is required to run TALOS GA workflows.")
+
+from talos.architecture.genome import GENOME_LENGTH, decode_genome, gene_bounds, gene_names
+from talos.architecture.memory_specs import (
+    derive_gb_bandwidth_max_bits,
+    derive_rf_bandwidth_max_bits,
+)
 from talos.evaluation.objective_adapter import ObjectiveAdapter
 from talos.evaluation.zigzag_evaluator import EvaluationResult, ZigZagEvaluator
 
@@ -25,7 +48,8 @@ DEFAULT_OBJECTIVES = ["latency", "energy", "area"]
 SUPPORTED_OBJECTIVES = {"latency", "energy", "area", "edp", "eap", "alp"}
 INVALID_OBJECTIVE_VALUE = float("inf")
 
-Config.warnings["not_compiled"] = False
+if Config is not None:
+    Config.warnings["not_compiled"] = False
 
 
 @dataclass(frozen=True)
@@ -148,6 +172,11 @@ def run_nsga2_pymoo(
     zigzag_lpf_limit: int = 1,
     zigzag_spatial_mappings: int = 1,
 ):
+    if NSGA2 is None or np is None:
+        raise ModuleNotFoundError(
+            "numpy and pymoo are required to run TALOS GA workflows."
+        )
+
     objective_names = list(objective_names or DEFAULT_OBJECTIVES)
     _validate_run_config(
         objective_names,
@@ -226,6 +255,7 @@ def run_nsga2_pymoo(
                 seed=seed,
                 n_workers=n_workers,
                 results_dir=results_dir,
+                memory_cost_mode=memory_cost_mode,
             )
         )
 
@@ -270,13 +300,14 @@ def _validate_run_config(
 
 def _write_results_csv(
     result: Any,
-    adapter: ObjectiveAdapter,
+    adapter: ObjectiveAdapter | None,
     objective_names: list[str],
     pop_size: int,
     n_gen: int,
     seed: int,
     n_workers: int,
     results_dir: str | None,
+    memory_cost_mode: str,
 ) -> Path:
     output_dir = Path(results_dir) if results_dir is not None else Path.cwd() / "results"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -301,6 +332,14 @@ def _write_results_csv(
         "valid",
         "error_message",
         "memory_cost_mode",
+        "area_source",
+        "area_is_proxy",
+        "raw_zigzag_area",
+        "zigzag_area_path",
+        "rf_size_bits",
+        "rf_bandwidth_max_bits",
+        "gb_size_bits",
+        "gb_bandwidth_max_bits",
     ]
     fieldnames.extend(f"raw_{name}" for name in names)
     fieldnames.extend(f"code_{name}" for name in names)
@@ -318,13 +357,29 @@ def _write_results_csv(
             objective_values = (
                 objective_rows[idx] if idx < len(objective_rows) else None
             )
-            base_result = _base_result_from_objectives(
-                objective_names,
-                objective_values,
-                memory_cost_mode,
-            )
+            base_result = None
+            if adapter is not None:
+                base_result = _safe_evaluate_base(
+                    adapter,
+                    raw_genome,
+                    memory_cost_mode,
+                )
             if base_result is None:
-                base_result = _safe_evaluate_base(adapter, raw_genome)
+                base_result = _base_result_from_objectives(
+                    objective_names,
+                    objective_values,
+                    memory_cost_mode,
+                )
+            if base_result is None:
+                base_result = EvaluationResult(
+                    latency=INVALID_OBJECTIVE_VALUE,
+                    energy=INVALID_OBJECTIVE_VALUE,
+                    area=INVALID_OBJECTIVE_VALUE,
+                    valid=False,
+                    error_message="No objective values available from pymoo result.",
+                    memory_cost_mode=memory_cost_mode,
+                )
+            decoded_cfg = decode_genome(discrete_genome)
 
             row: dict[str, Any] = {
                 "solution_index": idx,
@@ -342,6 +397,18 @@ def _write_results_csv(
                 "valid": base_result.valid,
                 "error_message": base_result.error_message,
                 "memory_cost_mode": base_result.memory_cost_mode,
+                "area_source": base_result.area_source,
+                "area_is_proxy": base_result.area_is_proxy,
+                "raw_zigzag_area": base_result.raw_zigzag_area,
+                "zigzag_area_path": base_result.zigzag_area_path,
+                "rf_size_bits": decoded_cfg.rf_size_bits,
+                "rf_bandwidth_max_bits": derive_rf_bandwidth_max_bits(
+                    decoded_cfg.rf_size_bits
+                ),
+                "gb_size_bits": decoded_cfg.gb_size_bits,
+                "gb_bandwidth_max_bits": derive_gb_bandwidth_max_bits(
+                    decoded_cfg.gb_size_bits
+                ),
             }
             row.update({f"raw_{name}": raw_genome[i] for i, name in enumerate(names)})
             row.update(
@@ -369,22 +436,35 @@ def _result_genomes(result: Any) -> list[list[float]]:
     if result.X is None:
         return []
 
-    x = np.asarray(result.X, dtype=float)
-    if x.ndim == 1:
-        x = x.reshape(1, -1)
-
-    return [[float(value) for value in row.tolist()] for row in x]
+    rows = _coerce_matrix(result.X)
+    return [[float(value) for value in row] for row in rows]
 
 
 def _result_objective_rows(result: Any) -> list[list[float]]:
     if result.F is None:
         return []
 
-    f = np.asarray(result.F, dtype=float)
-    if f.ndim == 1:
-        f = f.reshape(1, -1)
+    rows = _coerce_matrix(result.F)
+    return [[float(value) for value in row] for row in rows]
 
-    return [[float(value) for value in row.tolist()] for row in f]
+
+def _coerce_matrix(values: Any) -> list[list[float]]:
+    if np is not None:
+        array = np.asarray(values, dtype=float)
+        if array.ndim == 1:
+            array = array.reshape(1, -1)
+        return [[float(value) for value in row.tolist()] for row in array]
+
+    if hasattr(values, "tolist"):
+        values = values.tolist()
+
+    if not isinstance(values, list):
+        raise TypeError("Expected result data to be list-like.")
+    if not values:
+        return []
+    if isinstance(values[0], list):
+        return values
+    return [values]
 
 
 def _base_result_from_objectives(
@@ -418,6 +498,7 @@ def _base_result_from_objectives(
 def _safe_evaluate_base(
     adapter: ObjectiveAdapter,
     genome: list[float],
+    memory_cost_mode: str,
 ) -> EvaluationResult:
     try:
         return adapter.evaluate(genome)
@@ -428,6 +509,7 @@ def _safe_evaluate_base(
             area=INVALID_OBJECTIVE_VALUE,
             valid=False,
             error_message=str(exc),
+            memory_cost_mode=memory_cost_mode,
         )
 
 

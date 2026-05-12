@@ -51,7 +51,7 @@ class StubEvaluator(ZigZagEvaluator):
 
 
 def make_workdir() -> Path:
-    TMP_ROOT.mkdir(exist_ok=True)
+    TMP_ROOT.mkdir(parents=True, exist_ok=True)
     workdir = TMP_ROOT / f"case_{uuid.uuid4().hex}"
     workdir.mkdir(parents=True, exist_ok=False)
     return workdir
