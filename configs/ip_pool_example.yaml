@@ -1,0 +1,80 @@
+ips:
+  - id: pe_mac_8b_low_power
+    type: pe
+    area: 120.0
+    power: 3.2
+    throughput: 1.0
+    delay: 1.0
+    metadata:
+      precision_bits: 8
+
+  - id: pe_mac_8b_fast
+    type: pe
+    area: 180.0
+    power: 5.5
+    throughput: 2.0
+    delay: 0.6
+    metadata:
+      precision_bits: 8
+
+  - id: rf_small
+    type: register_file
+    area: 40.0
+    power: 0.8
+    throughput: 1.0
+    delay: 1.0
+    capacity_bits: 512
+    bandwidth_bits: 64
+
+  - id: rf_medium
+    type: register_file
+    area: 55.0
+    power: 1.0
+    throughput: 1.0
+    delay: 1.1
+    capacity_bits: 1024
+    bandwidth_bits: 128
+
+  - id: rf_large
+    type: register_file
+    area: 75.0
+    power: 1.4
+    throughput: 1.0
+    delay: 1.2
+    capacity_bits: 2048
+    bandwidth_bits: 128
+
+  - id: rf_xlarge
+    type: register_file
+    area: 110.0
+    power: 2.0
+    throughput: 1.0
+    delay: 1.4
+    capacity_bits: 32768
+    bandwidth_bits: 256
+
+  - id: sram_64kb
+    type: global_buffer
+    area: 2500.0
+    power: 15.0
+    throughput: 1.0
+    delay: 3.0
+    capacity_bits: 65536
+    bandwidth_bits: 256
+
+  - id: sram_128kb
+    type: global_buffer
+    area: 4500.0
+    power: 25.0
+    throughput: 1.0
+    delay: 4.0
+    capacity_bits: 131072
+    bandwidth_bits: 512
+
+  - id: dram_lpddr
+    type: dram
+    area: 0.0
+    power: 50.0
+    throughput: 1.0
+    delay: 20.0
+    bandwidth_bits: 1024
