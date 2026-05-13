@@ -6,10 +6,14 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from talos.architecture.genome import decode_genome, default_genome
-from talos.architecture.level1_importer import abstract_accelerator_from_level1_config
-from talos.architecture.zigzag_yaml_importer import abstract_accelerator_from_zigzag_yaml
-from talos.ip import IPPool
+from talos.level1.genome import decode_genome, default_genome
+from talos.level2.architecture.level1_importer import (
+    abstract_accelerator_from_level1_config,
+)
+from talos.level2.architecture.zigzag_yaml_importer import (
+    abstract_accelerator_from_zigzag_yaml,
+)
+from talos.level2.ip import IPPool
 from talos.level2 import Level2Evaluator, Level2GenomeSpec, Level2PymooProblem
 
 

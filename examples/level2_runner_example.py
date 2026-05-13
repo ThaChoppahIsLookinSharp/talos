@@ -6,8 +6,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from talos.architecture import abstract_accelerator_from_zigzag_yaml
-from talos.ip import IPPool
+from talos.level2.architecture.zigzag_yaml_importer import (
+    abstract_accelerator_from_zigzag_yaml,
+)
+from talos.level2.ip import IPPool
 from talos.level2 import run_level2_nsga2
 
 

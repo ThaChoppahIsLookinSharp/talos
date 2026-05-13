@@ -3,9 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 
-from talos.architecture.abstract_accelerator import AbstractAccelerator, AbstractComponent
-from talos.ip.ip_characterization import IPBlock
-from talos.ip.ip_pool import IPPool
+from talos.level2.architecture.abstract_accelerator import (
+    AbstractAccelerator,
+    AbstractComponent,
+)
+from talos.level2.ip.ip_characterization import IPBlock
+from talos.level2.ip.ip_pool import IPPool
 
 
 @dataclass(frozen=True)

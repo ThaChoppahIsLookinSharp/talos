@@ -4,17 +4,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from talos.architecture import (
+from talos.level1.genome import decode_genome, default_genome
+from talos.level2.architecture import (
     AbstractAccelerator,
     AbstractComponent,
     abstract_accelerator_from_level1_config,
     abstract_accelerator_from_zigzag_yaml,
-    decode_genome,
-    default_genome,
 )
-from talos.ip import IPBlock, IPPool
 from talos.level2 import Level2Evaluator, Level2GenomeSpec
 from talos.level2.genome import ImplementedAccelerator, ImplementedComponent
+from talos.level2.ip import IPBlock, IPPool
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

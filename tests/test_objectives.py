@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from talos.evaluation.objective_adapter import ObjectiveAdapter
-from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
+from talos.level1.objective_adapter import ObjectiveAdapter
+from talos.level1.zigzag_evaluator import ZigZagEvaluator
 
 workload = Path("workloads/alexnet.onnx").resolve()
 

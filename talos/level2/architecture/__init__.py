@@ -1,4 +1,3 @@
-# Deprecated: use talos.level1 and talos.level2.architecture instead.
 from talos.level1.genome import (
     ArchitectureConfig,
     GeneSpec,
@@ -9,10 +8,14 @@ from talos.level1.genome import (
     gene_bounds,
     gene_names,
 )
-from talos.level2.architecture import (
+from talos.level2.architecture.abstract_accelerator import (
     AbstractAccelerator,
     AbstractComponent,
+)
+from talos.level2.architecture.level1_importer import (
     abstract_accelerator_from_level1_config,
+)
+from talos.level2.architecture.zigzag_yaml_importer import (
     abstract_accelerator_from_zigzag_yaml,
 )
 

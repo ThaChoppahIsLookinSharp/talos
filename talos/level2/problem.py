@@ -12,8 +12,8 @@ except ModuleNotFoundError:
             self.xl = kwargs["xl"]
             self.xu = kwargs["xu"]
 
-from talos.architecture.abstract_accelerator import AbstractAccelerator
-from talos.ip.ip_pool import IPPool
+from talos.level2.architecture.abstract_accelerator import AbstractAccelerator
+from talos.level2.ip.ip_pool import IPPool
 from talos.level2.evaluator import Level2EvaluationResult, Level2Evaluator
 from talos.level2.genome import Level2GenomeSpec
 

@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from talos.architecture.abstract_accelerator import AbstractAccelerator
-from talos.ip.ip_pool import IPPool
+from talos.level2.architecture.abstract_accelerator import AbstractAccelerator
+from talos.level2.ip.ip_pool import IPPool
 from talos.level2.problem import Level2PymooProblem
 
 
