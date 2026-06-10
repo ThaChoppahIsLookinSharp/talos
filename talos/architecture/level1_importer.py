@@ -45,12 +45,5 @@ def abstract_accelerator_from_level1_config(config: ArchitectureConfig) -> Abstr
             required_bandwidth_bits=config.gb_bw_bits,
             attributes={"served_dimensions": list(config.gb_served_dims)},
         ),
-        AbstractComponent(
-            name="dram",
-            type="dram",
-            count=1,
-            required_bandwidth_bits=config.dram_bw_bits,
-            attributes={"scope": "off_chip"},
-        ),
     ]
     return AbstractAccelerator(name="level1_imported_accelerator", components=components)

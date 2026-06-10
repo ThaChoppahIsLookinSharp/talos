@@ -29,8 +29,8 @@ def run_smoke_test(
     )
     adapter = ObjectiveAdapter(evaluator)
 
-    # Test genome matching the current 8-gene TALOS setup
-    genome = [2, 2, 3, 2, 3, 2, 3, 3]
+    # Test genome matching the current 7-gene TALOS setup.
+    genome = [2, 2, 3, 2, 3, 2, 3]
 
     print("Evaluating genome:", genome)
 

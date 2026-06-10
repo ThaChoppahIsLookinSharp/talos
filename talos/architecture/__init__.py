@@ -1,6 +1,7 @@
 from talos.architecture.abstract_accelerator import AbstractAccelerator, AbstractComponent
 from talos.architecture.genome import (
     ArchitectureConfig,
+    DEFAULT_DRAM_BW_BITS,
     GeneSpec,
     GENOME_LENGTH,
     GENOME_SPEC,
@@ -18,6 +19,7 @@ __all__ = [
     "abstract_accelerator_from_level1_config",
     "abstract_accelerator_from_zigzag_yaml",
     "ArchitectureConfig",
+    "DEFAULT_DRAM_BW_BITS",
     "GeneSpec",
     "GENOME_LENGTH",
     "GENOME_SPEC",
