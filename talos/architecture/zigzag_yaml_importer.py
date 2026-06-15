@@ -83,14 +83,15 @@ def abstract_accelerator_from_zigzag_yaml(path: str) -> AbstractAccelerator:
             if not isinstance(memory, dict):
                 continue
             component_type = _infer_component_type(str(name), memory)
+            if component_type == "dram" or str(name).lower() == "dram":
+                continue
             count = pe_count if component_type == "register_file" and memory.get("served_dimensions") == [] else 1
-            required_capacity_bits = None if component_type == "dram" else _safe_int(memory.get("size"))
             components.append(
                 AbstractComponent(
                     name=str(name),
                     type=component_type,
                     count=count,
-                    required_capacity_bits=required_capacity_bits,
+                    required_capacity_bits=_safe_int(memory.get("size")),
                     required_bandwidth_bits=_infer_bandwidth_bits(memory),
                     attributes={
                         "mem_type": memory.get("mem_type"),

@@ -8,7 +8,7 @@ workload = Path("workloads/alexnet.onnx").resolve()
 evaluator = ZigZagEvaluator(str(workload), debug=False)
 adapter = ObjectiveAdapter(evaluator)
 
-genome = [2, 2, 3, 2, 3, 2, 3, 3]
+genome = [2, 2, 3, 2, 3, 2, 3]
 
 print("Base methods:")
 print("latency:", adapter.latency(genome))

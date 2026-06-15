@@ -7,6 +7,7 @@ from pathlib import Path
 from talos.architecture import (
     AbstractAccelerator,
     AbstractComponent,
+    DEFAULT_DRAM_BW_BITS,
     abstract_accelerator_from_level1_config,
     abstract_accelerator_from_zigzag_yaml,
     decode_genome,
@@ -72,7 +73,7 @@ class AbstractAcceleratorImporterTests(unittest.TestCase):
         self.assertEqual(accelerator.components[0].name, "pe_array")
         self.assertEqual(accelerator.components[0].count, config.pe_x * config.pe_y)
         self.assertTrue(any(component.name == "gb" for component in accelerator.components))
-        self.assertTrue(any(component.name == "dram" for component in accelerator.components))
+        self.assertFalse(any(component.name == "dram" for component in accelerator.components))
 
     def test_zigzag_yaml_importer_builds_components(self) -> None:
         accelerator = abstract_accelerator_from_zigzag_yaml(str(ZIGZAG_YAML_PATH))
@@ -81,8 +82,15 @@ class AbstractAcceleratorImporterTests(unittest.TestCase):
         self.assertTrue(any(component.name == "pe_array" for component in accelerator.components))
         self.assertTrue(any(component.name == "rf_i1" for component in accelerator.components))
         self.assertTrue(any(component.name == "gb" for component in accelerator.components))
-        dram = next(component for component in accelerator.components if component.name == "dram")
-        self.assertIsNone(dram.required_capacity_bits)
+        self.assertFalse(any(component.name == "dram" for component in accelerator.components))
+
+    def test_level1_genome_has_fixed_platform_dram_bandwidth(self) -> None:
+        genome = default_genome()
+        config = decode_genome(genome)
+
+        self.assertEqual(genome, [2, 2, 3, 2, 3, 2, 3])
+        self.assertEqual(len(genome), 7)
+        self.assertEqual(config.dram_bw_bits, DEFAULT_DRAM_BW_BITS)
 
     def test_zigzag_yaml_importer_is_tolerant_of_missing_optional_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

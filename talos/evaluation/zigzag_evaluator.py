@@ -251,6 +251,8 @@ class ZigZagEvaluator:
                     ],
                     "served_dimensions": cfg.gb_served_dims,
                 },
+                # DRAM stays in the ZigZag YAML only to model off-chip accesses.
+                # It is not part of the on-chip accelerator area or Level-2 IPs.
                 "dram": {
                     "size": 10**12,
                     "r_cost": 1000.0,
