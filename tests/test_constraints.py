@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from itertools import product
+import csv
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -28,8 +29,13 @@ from talos.architecture.abstract_accelerator import AbstractAccelerator, Abstrac
 from talos.architecture.genome import GENOME_LENGTH, GENOME_SPEC, decode_genome
 from talos.architecture.level1_importer import abstract_accelerator_from_level1_config
 from talos.constraints import UserConstraints
+from talos.evaluation.workload_activity import LayerActivity, WorkloadActivityProfile
 from talos.evaluation.zigzag_evaluator import EvaluationResult
-from talos.ga.pymoo_runner import TalosPymooProblem, _build_nsga2
+from talos.ga.pymoo_runner import (
+    TalosPymooProblem,
+    _build_nsga2,
+    _write_results_csv,
+)
 from talos.ip import IPBlock, IPPool
 from talos.level2 import Level2Evaluator
 from talos.level2.genome import ImplementedAccelerator, ImplementedComponent
@@ -219,6 +225,71 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertEqual(rows[0]["dram_accesses"], 1000)
         self.assertEqual(rows[0]["dram_access_energy_j"], 1e-6)
 
+    def test_level1_reports_base_metrics_when_only_area_is_optimized(self) -> None:
+        evaluation = EvaluationResult(
+            latency=10.0,
+            energy=20.0,
+            area=30.0,
+            valid=True,
+        )
+        rows = build_summary_rows(
+            architecture_index=0,
+            level1_raw_genome=[0.0] * GENOME_LENGTH,
+            level1_discrete_genome=[0] * GENOME_LENGTH,
+            level1_architecture_config={},
+            level1_objective_values=[30.0],
+            level1_objective_names=["area"],
+            level2_objective_names=["area"],
+            level1_csv_path="level1.csv",
+            level2_csv_path=None,
+            level2_solutions=[
+                {
+                    "solution_index": 0,
+                    "valid": True,
+                    "implementation_fmax_mhz": 500.0,
+                    "constraint_violations": [],
+                }
+            ],
+            constraints=UserConstraints(),
+            level1_evaluation=evaluation,
+        )
+
+        self.assertEqual(rows[0]["level1_latency"], 10.0)
+        self.assertEqual(rows[0]["level1_energy"], 20.0)
+        self.assertEqual(rows[0]["level1_area_proxy"], 30.0)
+        self.assertEqual(rows[0]["estimated_fps"], 50_000_000.0)
+
+    def test_level1_csv_reports_base_metrics_when_only_area_is_optimized(self) -> None:
+        result = SimpleNamespace(
+            X=np.zeros((1, GENOME_LENGTH)),
+            F=np.array([[30.0]]),
+        )
+        evaluation = EvaluationResult(
+            latency=10.0,
+            energy=20.0,
+            area=30.0,
+            valid=True,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _write_results_csv(
+                result=result,
+                evaluations=[evaluation],
+                objective_names=["area"],
+                pop_size=2,
+                n_gen=1,
+                seed=1,
+                n_workers=1,
+                results_dir=tmp,
+                constraints=None,
+            )
+            with path.open(newline="", encoding="utf-8") as handle:
+                row = next(csv.DictReader(handle))
+
+        self.assertEqual(float(row["latency"]), 10.0)
+        self.assertEqual(float(row["energy"]), 20.0)
+        self.assertEqual(float(row["area"]), 30.0)
+
     def test_level1_selection_does_not_exhaustively_prefilter_physical_constraints(self) -> None:
         pool = IPPool.from_yaml(SYNTHETIC_POOL_PATH)
         candidates = select_level1_candidates(
@@ -394,10 +465,22 @@ class UserConstraintsTests(unittest.TestCase):
             architecture_config=config,
             accelerator=abstract_accelerator_from_level1_config(config),
         )
+        level1_evaluation = EvaluationResult(
+            latency=1.0,
+            energy=1.0,
+            area=1.0,
+            valid=True,
+            activity_profile=WorkloadActivityProfile(
+                layers=(LayerActivity("layer", 1, 0, 0, {}),)
+            ),
+        )
         level1_result = SimpleNamespace(
             X=np.zeros((1, GENOME_LENGTH)),
             F=np.ones((1, 1)),
-            talos=SimpleNamespace(csv_path=None),
+            talos=SimpleNamespace(
+                csv_path=None,
+                evaluations=[level1_evaluation],
+            ),
         )
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -448,17 +531,15 @@ class UserConstraintsTests(unittest.TestCase):
                             return_value=level1_result,
                         ),
                         patch(
-                            "talos.evaluation.zigzag_evaluator.ZigZagEvaluator"
-                        ),
-                        patch(
                             "examples.full_flow_example.select_level1_candidates",
                             return_value=[candidate],
                         ) as select_mock,
                         run_patch,
                     ):
                         self.assertEqual(full_flow_main(), expected_code)
-                        self.assertIsNotNone(
-                            select_mock.call_args.kwargs["evaluate_activity"]
+                        self.assertEqual(
+                            select_mock.call_args.kwargs["level1_evaluations"],
+                            [level1_evaluation],
                         )
 
     def test_constraint_sweep_builds_seven_worker_aware_commands(self) -> None:

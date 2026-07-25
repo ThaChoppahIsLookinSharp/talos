@@ -14,6 +14,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from talos.constraints import UserConstraints, estimated_fps
 from talos.evaluation.workload_activity import WorkloadActivityProfile
+from talos.evaluation.zigzag_evaluator import EvaluationResult
 
 
 LEVEL1_OBJECTIVES = ["latency", "energy", "area"]
@@ -65,6 +66,7 @@ class Level1Candidate:
     architecture_config: Any
     accelerator: Any
     activity_profile: WorkloadActivityProfile | None = None
+    evaluation: EvaluationResult | None = None
 
 
 def iter_level1_genomes(result: Any) -> list[list[float]]:
@@ -73,6 +75,11 @@ def iter_level1_genomes(result: Any) -> list[list[float]]:
 
 def iter_level1_objectives(result: Any) -> list[list[float]]:
     return _float_rows(getattr(result, "F", None))
+
+
+def iter_level1_evaluations(result: Any) -> list[EvaluationResult]:
+    artifacts = getattr(result, "talos", None)
+    return list(getattr(artifacts, "evaluations", []))
 
 
 def _float_rows(raw: Any) -> list[list[float]]:
@@ -202,7 +209,6 @@ def main() -> int:
         from talos.architecture.level1_importer import (
             abstract_accelerator_from_level1_config,
         )
-        from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
         from talos.ga.pymoo_runner import run_nsga2_pymoo
         from talos.ip import IPPool
         from talos.level2.runner import run_level2
@@ -218,14 +224,6 @@ def main() -> int:
         return 2
 
     pool = IPPool.from_yaml(ip_pool_path)
-    activity_evaluator = ZigZagEvaluator(
-        workload=str(workload),
-        debug=args.debug,
-        workdir=str(results_dir / "level1_profiles"),
-        lpf_limit=1,
-        nb_spatial_mappings_generated=1,
-    )
-
     print("[Level 1] Running small architecture exploration...")
     try:
         level1_result = run_nsga2_pymoo(
@@ -255,6 +253,7 @@ def main() -> int:
 
     level1_genomes = iter_level1_genomes(level1_result)
     level1_objectives = iter_level1_objectives(level1_result)
+    level1_evaluations = iter_level1_evaluations(level1_result)
     level1_csv_path = _level1_csv_path(level1_result)
 
     print(f"[Level 1] Found {len(level1_genomes)} candidate architecture(s).")
@@ -279,7 +278,7 @@ def main() -> int:
             abstract_accelerator_from_level1_config
         ),
         constraints=constraints,
-        evaluate_activity=activity_evaluator.evaluate,
+        level1_evaluations=level1_evaluations,
         failures=flow_failures,
     )
     print(
@@ -350,6 +349,7 @@ def main() -> int:
                 level2_csv_path=level2_result.csv_path,
                 level2_solutions=level2_result.solutions,
                 constraints=constraints,
+                level1_evaluation=candidate.evaluation,
             )
         )
 
@@ -382,6 +382,7 @@ def select_level1_candidates(
     abstract_accelerator_from_level1_config: Any,
     constraints: UserConstraints | None = None,
     evaluate_activity: Any | None = None,
+    level1_evaluations: list[EvaluationResult] | None = None,
     failures: list[str] | None = None,
 ) -> list[Level1Candidate]:
     candidates: list[Level1Candidate] = []
@@ -419,10 +420,33 @@ def select_level1_candidates(
             if source_index < len(level1_objectives)
             else []
         )
+        evaluation = (
+            level1_evaluations[source_index]
+            if level1_evaluations is not None
+            and source_index < len(level1_evaluations)
+            else None
+        )
+        if evaluation is None and evaluate_activity is not None:
+            evaluation = evaluate_activity(genome)
+        activity_profile = None if evaluation is None else evaluation.activity_profile
+        if evaluation is not None:
+            if not evaluation.valid or activity_profile is None:
+                print(
+                    f"[Level 1] Skipping architecture {source_index}: "
+                    f"{evaluation.error_message or 'activity profile is unavailable'}"
+                )
+                if failures is not None:
+                    failures.append(
+                        evaluation.error_message
+                        or "activity profile is unavailable"
+                    )
+                continue
+
         constraint_error = first_constraint_feasibility_error(
             constraints=constraints,
             level1_objective_names=level1_objective_names,
             objective_values=objective_values,
+            evaluation=evaluation,
         )
         if constraint_error:
             print(
@@ -430,22 +454,6 @@ def select_level1_candidates(
                 f"{constraint_error}"
             )
             continue
-
-        activity_profile = None
-        if evaluate_activity is not None:
-            activity_result = evaluate_activity(genome)
-            if not activity_result.valid or activity_result.activity_profile is None:
-                print(
-                    f"[Level 1] Skipping architecture {source_index}: "
-                    f"{activity_result.error_message or 'activity profile is unavailable'}"
-                )
-                if failures is not None:
-                    failures.append(
-                        activity_result.error_message
-                        or "activity profile is unavailable"
-                    )
-                continue
-            activity_profile = activity_result.activity_profile
 
         seen_discrete_genomes.add(discrete_key)
         candidates.append(
@@ -457,6 +465,7 @@ def select_level1_candidates(
                 architecture_config=config,
                 accelerator=accelerator,
                 activity_profile=activity_profile,
+                evaluation=evaluation,
             )
         )
 
@@ -468,12 +477,17 @@ def first_constraint_feasibility_error(
     constraints: UserConstraints | None,
     level1_objective_names: list[str],
     objective_values: list[float],
+    evaluation: EvaluationResult | None = None,
 ) -> str:
     if constraints is None:
         return ""
 
     level1_values = dict(zip(level1_objective_names, objective_values))
-    latency_cycles = level1_values.get("latency")
+    latency_cycles = (
+        evaluation.latency
+        if evaluation is not None and evaluation.valid
+        else level1_values.get("latency")
+    )
     if latency_cycles is not None:
         violations = constraints.level1_violations(float(latency_cycles))
         if violations:
@@ -515,11 +529,20 @@ def build_summary_rows(
     level2_csv_path: Path | None,
     level2_solutions: list[dict[str, Any]],
     constraints: UserConstraints | None,
+    level1_evaluation: EvaluationResult | None = None,
 ) -> list[dict[str, Any]]:
     if not level2_solutions:
         return []
 
     level1_by_name = dict(zip(level1_objective_names, level1_objective_values))
+    if level1_evaluation is not None and level1_evaluation.valid:
+        level1_by_name.update(
+            {
+                "latency": level1_evaluation.latency,
+                "energy": level1_evaluation.energy,
+                "area": level1_evaluation.area,
+            }
+        )
     latency_cycles = level1_by_name.get("latency", "")
     area_proxy = level1_by_name.get("area", "")
     rows: list[dict[str, Any]] = []

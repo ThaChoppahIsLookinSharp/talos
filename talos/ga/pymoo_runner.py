@@ -24,7 +24,7 @@ from pymoo.operators.sampling.rnd import IntegerRandomSampling
 from talos.architecture.genome import GENOME_LENGTH, gene_bounds, gene_names
 from talos.constraints import UserConstraints
 from talos.evaluation.objective_adapter import ObjectiveAdapter
-from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
+from talos.evaluation.zigzag_evaluator import EvaluationResult, ZigZagEvaluator
 
 
 DEFAULT_OBJECTIVES = ["latency", "energy", "area"]
@@ -43,6 +43,7 @@ class PymooRunArtifacts:
     n_gen: int
     seed: int
     n_workers: int
+    evaluations: list[EvaluationResult]
 
 
 class TalosPymooProblem(ElementwiseProblem):
@@ -230,12 +231,16 @@ def run_nsga2_pymoo(
             pool.close()
             pool.join()
 
+    evaluations = [
+        adapter.evaluate(genome)
+        for genome in _result_genomes(result)
+    ]
     csv_path = None
     if save_csv:
         csv_path = str(
             _write_results_csv(
                 result=result,
-                adapter=adapter,
+                evaluations=evaluations,
                 objective_names=objective_names,
                 pop_size=pop_size,
                 n_gen=n_gen,
@@ -254,6 +259,7 @@ def run_nsga2_pymoo(
         n_gen=n_gen,
         seed=seed,
         n_workers=n_workers,
+        evaluations=evaluations,
     )
     return result
 
@@ -296,7 +302,7 @@ def _validate_run_config(
 
 def _write_results_csv(
     result: Any,
-    adapter: ObjectiveAdapter,
+    evaluations: list[EvaluationResult],
     objective_names: list[str],
     pop_size: int,
     n_gen: int,
@@ -349,9 +355,22 @@ def _write_results_csv(
                 objective_rows[idx] if idx < len(objective_rows) else None
             )
             objective_values_by_name = dict(zip(objective_names, objective_values or []))
-            latency = objective_values_by_name.get("latency", "")
-            energy = objective_values_by_name.get("energy", "")
-            area = objective_values_by_name.get("area", "")
+            evaluation = evaluations[idx] if idx < len(evaluations) else None
+            latency = (
+                evaluation.latency
+                if evaluation is not None and evaluation.valid
+                else objective_values_by_name.get("latency", "")
+            )
+            energy = (
+                evaluation.energy
+                if evaluation is not None and evaluation.valid
+                else objective_values_by_name.get("energy", "")
+            )
+            area = (
+                evaluation.area
+                if evaluation is not None and evaluation.valid
+                else objective_values_by_name.get("area", "")
+            )
             constraint_violations = (
                 []
                 if constraints is None or latency == ""
@@ -360,7 +379,8 @@ def _write_results_csv(
             objectives_valid = objective_values is not None and all(
                 math.isfinite(float(value)) for value in objective_values
             )
-            valid = objectives_valid and not constraint_violations
+            evaluation_valid = evaluation is None or evaluation.valid
+            valid = objectives_valid and evaluation_valid and not constraint_violations
 
             row: dict[str, Any] = {
                 "solution_index": idx,
@@ -380,7 +400,15 @@ def _write_results_csv(
                 "valid": valid,
                 "constraints_satisfied": valid,
                 "constraint_violations": json.dumps(constraint_violations),
-                "error_message": "" if objectives_valid else "Non-finite objective returned by pymoo.",
+                "error_message": (
+                    evaluation.error_message
+                    if evaluation is not None and not evaluation.valid
+                    else (
+                        "Non-finite objective returned by pymoo."
+                        if not objectives_valid
+                        else ""
+                    )
+                ),
             }
             row.update({f"raw_{name}": raw_genome[i] for i, name in enumerate(names)})
             row.update(
@@ -389,9 +417,7 @@ def _write_results_csv(
             row.update(
                 {
                     f"objective_{name}": _objective_value_for_csv(
-                        adapter,
                         name,
-                        raw_genome,
                         objective_names,
                         objective_values,
                     )
@@ -427,9 +453,7 @@ def _result_objective_rows(result: Any) -> list[list[float]]:
 
 
 def _objective_value_for_csv(
-    adapter: ObjectiveAdapter,
     name: str,
-    genome: list[float],
     objective_names: list[str],
     objective_values: list[float] | None,
 ) -> float:
