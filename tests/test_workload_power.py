@@ -27,7 +27,11 @@ def _model(idle: float, active: float) -> PowerCharacterization:
     )
 
 
-def _implemented(pe_model: PowerCharacterization) -> ImplementedAccelerator:
+def _implemented(
+    pe_model: PowerCharacterization,
+    *,
+    fmax_mhz: float = 100.0,
+) -> ImplementedAccelerator:
     components: list[ImplementedComponent] = []
     for name, ip_type, count, metadata, model in (
         ("pe_array", "pe", 1, {"macs_per_cycle": 1}, pe_model),
@@ -49,7 +53,7 @@ def _implemented(pe_model: PowerCharacterization) -> ImplementedAccelerator:
                     area=1.0,
                     throughput=1.0,
                     delay=1.0,
-                    fmax_mhz=100.0,
+                    fmax_mhz=fmax_mhz,
                     metadata=metadata,
                     power_model=model,
                 ),
@@ -111,6 +115,20 @@ class UtilizationTests(unittest.TestCase):
 
 
 class WorkloadPowerTests(unittest.TestCase):
+    def test_energy_and_throughput_use_implementation_frequency(self) -> None:
+        profile = WorkloadActivityProfile(
+            layers=(LayerActivity("layer", 1000, 1000, 1, {}),)
+        )
+
+        result = evaluate_workload_power(
+            _implemented(_model(0, 1), fmax_mhz=160.0),
+            profile,
+        )
+
+        self.assertAlmostEqual(result.latency_s, 1000 / 160e6)
+        self.assertAlmostEqual(result.power_w, 1.6)
+        self.assertAlmostEqual(result.energy_j, 1e-5)
+
     def test_power_includes_dram_energy_and_is_weighted_by_duration(self) -> None:
         profile = WorkloadActivityProfile(
             layers=(

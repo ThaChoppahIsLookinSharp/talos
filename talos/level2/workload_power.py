@@ -51,12 +51,17 @@ def evaluate_workload_power(
     latency_s = 0.0
 
     for layer in profile.layers:
-        layer_power_w = _pe_power(pe_component, layer)
+        layer_power_w = _pe_power(
+            pe_component,
+            layer,
+            operating_frequency_mhz,
+        )
         for name in MEMORY_COMPONENT_NAMES:
             layer_power_w += _memory_power(
                 components[name],
                 layer,
                 layer.memory_accesses.get(name, 0.0),
+                operating_frequency_mhz,
             )
         layer_latency_s = layer.latency_cycles / (
             operating_frequency_mhz * 1_000_000.0
@@ -110,7 +115,11 @@ def validate_power_aware_exploration(
             )
 
 
-def _pe_power(component: ImplementedComponent, layer: LayerActivity) -> float:
+def _pe_power(
+    component: ImplementedComponent,
+    layer: LayerActivity,
+    operating_frequency_mhz: float,
+) -> float:
     count = component.abstract_component.count
     rate = _positive_metadata(
         component.ip.metadata,
@@ -125,13 +134,19 @@ def _pe_power(component: ImplementedComponent, layer: LayerActivity) -> float:
         spatially_used_pes=layer.spatially_used_pes,
         layer_id=layer.layer_id,
     )
-    return _component_power_w(count, utilization, _power_model(component))
+    return _component_power_w(
+        count,
+        utilization,
+        _power_model(component),
+        operating_frequency_mhz,
+    )
 
 
 def _memory_power(
     component: ImplementedComponent,
     layer: LayerActivity,
     accesses: float,
+    operating_frequency_mhz: float,
 ) -> float:
     count = component.abstract_component.count
     rate = _positive_metadata(
@@ -147,7 +162,12 @@ def _memory_power(
         memory_name=component.abstract_component.name,
         layer_id=layer.layer_id,
     )
-    return _component_power_w(count, utilization, _power_model(component))
+    return _component_power_w(
+        count,
+        utilization,
+        _power_model(component),
+        operating_frequency_mhz,
+    )
 
 
 def _pe_utilization(
@@ -216,9 +236,18 @@ def _component_power_w(
     instance_count: int,
     utilization: float,
     model: PowerCharacterization,
+    operating_frequency_mhz: float | None = None,
 ) -> float:
+    frequency_ratio = (
+        1.0
+        if operating_frequency_mhz is None
+        else operating_frequency_mhz / model.reference_frequency_mhz
+    )
     return instance_count * (
-        model.p_idle_w + utilization * (model.p_active_w - model.p_idle_w)
+        model.p_idle_w
+        + utilization
+        * (model.p_active_w - model.p_idle_w)
+        * frequency_ratio
     )
 
 
@@ -265,13 +294,15 @@ def _validate_characterizations(
         if len({getattr(model, field) for _id, model, _fmax in characterized}) != 1:
             raise ValueError(f"Selected IPs have incompatible power {field} values.")
 
-    operating_frequency_mhz = frequencies.pop()
+    reference_frequency_mhz = frequencies.pop()
+    fmax_values: list[float] = []
     for ip_id, _model, fmax_mhz in characterized:
         if fmax_mhz is None:
             raise ValueError(f"Selected IP {ip_id!r} has no fmax_mhz.")
-        if fmax_mhz < operating_frequency_mhz:
+        if fmax_mhz < reference_frequency_mhz:
             raise ValueError(
                 f"Selected IP {ip_id!r} fmax_mhz {fmax_mhz} is below power "
-                f"reference frequency {operating_frequency_mhz}."
+                f"reference frequency {reference_frequency_mhz}."
             )
-    return operating_frequency_mhz
+        fmax_values.append(fmax_mhz)
+    return min(fmax_values)
