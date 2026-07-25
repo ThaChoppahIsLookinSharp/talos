@@ -188,6 +188,8 @@ def _build_solution_rows(
         )
         row["strategy"] = "nsga2"
         row["explored_combinations"] = ""
+        if not row["valid"] or not row["constraints_satisfied"]:
+            continue
         ip_set = tuple(sorted(row.get("selected_ips", {}).items()))
         if ip_set in seen_ip_sets:
             continue

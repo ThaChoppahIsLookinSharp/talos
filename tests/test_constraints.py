@@ -141,6 +141,36 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertFalse(result.valid)
         self.assertIn("unavailable", result.error_message or "")
 
+    def test_level2_constraints_are_exported_to_pymoo(self) -> None:
+        component = AbstractComponent(name="pe", type="pe")
+        problem = Level2PymooProblem(
+            accelerator=AbstractAccelerator(name="a", components=[component]),
+            ip_pool=IPPool(
+                [
+                    IPBlock(
+                        id="pe0",
+                        type="pe",
+                        area=1.0,
+                        throughput=1.0,
+                        delay=1.0,
+                        fmax_mhz=500.0,
+                    )
+                ]
+            ),
+            objective_names=["area"],
+            constraints=UserConstraints(
+                max_area_mm2=0.5,
+                min_frequency_mhz=600.0,
+            ),
+        )
+        out: dict[str, list[float]] = {}
+
+        problem._evaluate(np.zeros(1), out)
+
+        self.assertEqual(problem.n_ieq_constr, 2)
+        self.assertEqual(out["F"], [1.0])
+        self.assertEqual(out["G"], [0.5, 100.0])
+
     def test_full_flow_summary_reports_constraints_and_estimated_fps(self) -> None:
         rows = build_summary_rows(
             architecture_index=0,
@@ -254,6 +284,35 @@ class UserConstraintsTests(unittest.TestCase):
         )
 
         self.assertEqual([row["selected_ips"]["pe"] for row in rows], ["pe0", "pe1"])
+
+    def test_level2_solution_rows_exclude_infeasible_candidates(self) -> None:
+        component = AbstractComponent(name="pe", type="pe")
+        problem = Level2PymooProblem(
+            accelerator=AbstractAccelerator(name="a", components=[component]),
+            ip_pool=IPPool(
+                [
+                    IPBlock(
+                        id="pe0",
+                        type="pe",
+                        area=1,
+                        throughput=1,
+                        delay=1,
+                    )
+                ]
+            ),
+            objective_names=["area"],
+            constraints=UserConstraints(max_area_mm2=0.5),
+        )
+
+        rows = _build_solution_rows(
+            problem=problem,
+            solution_vectors=[[0]],
+            pop_size=1,
+            n_gen=1,
+            seed=1,
+        )
+
+        self.assertEqual(rows, [])
 
     def test_level2_energy_objective_requires_activity_profile(self) -> None:
         component = AbstractComponent(name="pe", type="pe")

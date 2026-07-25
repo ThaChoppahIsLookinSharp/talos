@@ -9,6 +9,7 @@ except ModuleNotFoundError:
         def __init__(self, **kwargs: Any) -> None:
             self.n_var = kwargs["n_var"]
             self.n_obj = kwargs["n_obj"]
+            self.n_ieq_constr = kwargs.get("n_ieq_constr", 0)
             self.xl = kwargs["xl"]
             self.xu = kwargs["xu"]
 
@@ -63,6 +64,9 @@ class Level2PymooProblem(ElementwiseProblem):
         super().__init__(
             n_var=len(self.spec.genes),
             n_obj=len(self.objective_names),
+            n_ieq_constr=(
+                0 if constraints is None else constraints.level2_constraint_count
+            ),
             xl=xl,
             xu=xu,
         )
@@ -81,13 +85,28 @@ class Level2PymooProblem(ElementwiseProblem):
             result = self.evaluator.evaluate(implemented)
         except Exception:
             out["F"] = [float("inf")] * len(self.objective_names)
-            return
-
-        if not result.valid:
-            out["F"] = [float("inf")] * len(self.objective_names)
+            self._set_constraint_values(out, None)
             return
 
         out["F"] = [self._objective_value(name, result) for name in self.objective_names]
+        self._set_constraint_values(out, result)
+
+    def _set_constraint_values(
+        self,
+        out: dict[str, Any],
+        result: Level2EvaluationResult | None,
+    ) -> None:
+        if self.constraints is None or self.constraints.level2_constraint_count == 0:
+            return
+        out["G"] = (
+            [float("inf")] * self.constraints.level2_constraint_count
+            if result is None
+            else self.constraints.level2_constraint_values(
+                area_mm2=result.area,
+                power_w=result.power,
+                implementation_fmax_mhz=result.implementation_fmax_mhz,
+            )
+        )
 
     def _objective_value(self, name: str, result: Level2EvaluationResult) -> float:
         if name == "area":

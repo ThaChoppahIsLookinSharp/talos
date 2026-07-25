@@ -67,6 +67,41 @@ class UserConstraints:
                 )
         return violations
 
+    @property
+    def level2_constraint_count(self) -> int:
+        return sum(
+            value is not None
+            for value in (
+                self.max_area_mm2,
+                self.max_power_w,
+                self.min_frequency_mhz,
+            )
+        )
+
+    def level2_constraint_values(
+        self,
+        *,
+        area_mm2: float,
+        power_w: float | None,
+        implementation_fmax_mhz: float | None,
+    ) -> list[float]:
+        values: list[float] = []
+        if self.max_area_mm2 is not None:
+            values.append(area_mm2 - self.max_area_mm2)
+        if self.max_power_w is not None:
+            values.append(
+                float("inf")
+                if power_w is None
+                else power_w - self.max_power_w
+            )
+        if self.min_frequency_mhz is not None:
+            values.append(
+                float("inf")
+                if implementation_fmax_mhz is None
+                else self.min_frequency_mhz - implementation_fmax_mhz
+            )
+        return values
+
 
 def estimated_fps(
     *,
