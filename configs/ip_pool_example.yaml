@@ -2,79 +2,219 @@ ips:
   - id: pe_mac_8b_low_power
     type: pe
     area: 120.0
-    power: 3.2
     throughput: 1.0
     delay: 1.0
+    fmax_mhz: 500.0
     metadata:
       precision_bits: 8
+      macs_per_cycle: 1
+      disclaimer: "Synthetic example values only; not silicon characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.8
+      p_active_w: 3.2
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid MAC operations."
+        active_mode: "One valid MAC per cycle."
 
   - id: pe_mac_8b_fast
     type: pe
     area: 180.0
-    power: 5.5
     throughput: 2.0
     delay: 0.6
+    fmax_mhz: 900.0
     metadata:
       precision_bits: 8
+      macs_per_cycle: 1
+      disclaimer: "Synthetic example values only; not silicon characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 1.1
+      p_active_w: 5.5
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid MAC operations."
+        active_mode: "One valid MAC per cycle."
 
   - id: rf_small
     type: register_file
     area: 40.0
-    power: 0.8
     throughput: 1.0
     delay: 1.0
+    fmax_mhz: 800.0
     capacity_bits: 512
     bandwidth_bits: 64
+    metadata:
+      accesses_per_cycle: 1
+      disclaimer: "Synthetic example values only; not silicon characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.2
+      p_active_w: 0.8
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid memory access."
+        active_mode: "One generic memory access per cycle."
+        active_access_mix: "Synthetic representative read/write mix."
 
   - id: rf_medium
     type: register_file
     area: 55.0
-    power: 1.0
     throughput: 1.0
     delay: 1.1
+    fmax_mhz: 750.0
     capacity_bits: 1024
     bandwidth_bits: 128
+    metadata:
+      accesses_per_cycle: 1
+      disclaimer: "Synthetic example values only; not silicon characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.25
+      p_active_w: 1.0
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid memory access."
+        active_mode: "One generic memory access per cycle."
+        active_access_mix: "Synthetic representative read/write mix."
 
   - id: rf_large
     type: register_file
     area: 75.0
-    power: 1.4
     throughput: 1.0
     delay: 1.2
+    fmax_mhz: 700.0
     capacity_bits: 2048
     bandwidth_bits: 128
+    metadata:
+      accesses_per_cycle: 1
+      disclaimer: "Synthetic example values only; not silicon characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.35
+      p_active_w: 1.4
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid memory access."
+        active_mode: "One generic memory access per cycle."
+        active_access_mix: "Synthetic representative read/write mix."
 
   - id: rf_xlarge
     type: register_file
     area: 110.0
-    power: 2.0
     throughput: 1.0
     delay: 1.4
+    fmax_mhz: 650.0
     capacity_bits: 32768
     bandwidth_bits: 256
+    metadata:
+      accesses_per_cycle: 1
+      disclaimer: "Synthetic example values only; not silicon characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.5
+      p_active_w: 2.0
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid memory access."
+        active_mode: "One generic memory access per cycle."
+        active_access_mix: "Synthetic representative read/write mix."
 
   - id: sram_64kb
     type: global_buffer
     area: 2500.0
-    power: 15.0
     throughput: 1.0
     delay: 3.0
+    fmax_mhz: 600.0
     capacity_bits: 65536
     bandwidth_bits: 256
+    metadata:
+      accesses_per_cycle: 1
+      disclaimer: "Synthetic example values only; not silicon characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 3.0
+      p_active_w: 15.0
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid memory access."
+        active_mode: "One generic memory access per cycle."
+        active_access_mix: "Synthetic representative read/write mix."
 
   - id: sram_128kb
     type: global_buffer
     area: 4500.0
-    power: 25.0
     throughput: 1.0
     delay: 4.0
+    fmax_mhz: 500.0
     capacity_bits: 131072
     bandwidth_bits: 512
+    metadata:
+      accesses_per_cycle: 1
+      disclaimer: "Synthetic example values only; not silicon characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 5.0
+      p_active_w: 25.0
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid memory access."
+        active_mode: "One generic memory access per cycle."
+        active_access_mix: "Synthetic representative read/write mix."
 
   - id: dram_lpddr
     type: dram
     area: 0.0
-    power: 50.0
     throughput: 1.0
     delay: 20.0
+    fmax_mhz: 400.0
     bandwidth_bits: 1024
+    metadata:
+      accesses_per_cycle: 1
+      disclaimer: "Synthetic example values only; DRAM is excluded from Level 2 power."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 400.0
+      p_idle_w: 10.0
+      p_active_w: 50.0
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid memory access."
+        active_mode: "One generic memory access per cycle."
+        active_access_mix: "Synthetic representative read/write mix."

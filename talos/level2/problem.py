@@ -13,13 +13,17 @@ except ModuleNotFoundError:
             self.xu = kwargs["xu"]
 
 from talos.architecture.abstract_accelerator import AbstractAccelerator
+from talos.constraints import UserConstraints
+from talos.evaluation.workload_activity import WorkloadActivityProfile
 from talos.ip.ip_pool import IPPool
 from talos.level2.evaluator import Level2EvaluationResult, Level2Evaluator
 from talos.level2.genome import Level2GenomeSpec
+from talos.level2.workload_power import validate_power_aware_exploration
 
 
 SUPPORTED_LEVEL2_OBJECTIVES = {
     "area",
+    "energy",
     "power",
     "delay",
     "inv_throughput",
@@ -33,13 +37,24 @@ class Level2PymooProblem(ElementwiseProblem):
         accelerator: AbstractAccelerator,
         ip_pool: IPPool,
         objective_names: list[str],
+        constraints: UserConstraints | None = None,
+        activity_profile: WorkloadActivityProfile | None = None,
     ) -> None:
         self.accelerator = accelerator
         self.ip_pool = ip_pool
         self.objective_names = list(objective_names)
+        self.constraints = constraints
+        self.activity_profile = activity_profile
         self._validate_objective_names(self.objective_names)
         self.spec = Level2GenomeSpec.from_accelerator_and_pool(accelerator, ip_pool)
-        self.evaluator = Level2Evaluator()
+        if any(name in self.objective_names for name in ("energy", "power")) or (
+            constraints is not None and constraints.max_power_w is not None
+        ):
+            validate_power_aware_exploration(self.spec, activity_profile)
+        self.evaluator = Level2Evaluator(
+            constraints=constraints,
+            activity_profile=activity_profile,
+        )
 
         bounds = self.spec.gene_bounds()
         xl = [float(lower) for lower, _upper in bounds]
@@ -77,8 +92,14 @@ class Level2PymooProblem(ElementwiseProblem):
     def _objective_value(self, name: str, result: Level2EvaluationResult) -> float:
         if name == "area":
             return result.area
+        if name == "energy":
+            return (
+                float("inf")
+                if result.workload_energy_j is None
+                else result.workload_energy_j
+            )
         if name == "power":
-            return result.power
+            return float("inf") if result.power is None else result.power
         if name == "delay":
             return result.delay
         if name == "inv_throughput":

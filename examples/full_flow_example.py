@@ -12,9 +12,14 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
+from talos.constraints import UserConstraints, estimated_fps
+from talos.evaluation.workload_activity import WorkloadActivityProfile
+
 
 LEVEL1_OBJECTIVES = ["latency", "energy", "area"]
-LEVEL2_OBJECTIVES = ["area", "power", "delay", "inv_throughput"]
+LEVEL2_OBJECTIVES = ["area", "energy", "delay"]
+SUPPORTED_LEVEL1_OBJECTIVES = ["latency", "energy", "area", "edp", "eap", "alp"]
+SUPPORTED_LEVEL2_OBJECTIVES = ["area", "energy", "power", "delay", "inv_throughput"]
 SUMMARY_FIELDNAMES = [
     "architecture_index",
     "level1_raw_genome",
@@ -22,9 +27,10 @@ SUMMARY_FIELDNAMES = [
     "level1_architecture_config",
     "level1_objective_names",
     "level1_objective_values",
+    "level1_latency_cycles",
     "level1_latency",
     "level1_energy",
-    "level1_area",
+    "level1_area_proxy",
     "level2_solution_index",
     "level2_genome",
     "selected_ips",
@@ -32,9 +38,19 @@ SUMMARY_FIELDNAMES = [
     "level2_objective_values",
     "level2_area",
     "level2_power",
+    "workload_energy_j",
+    "workload_latency_s",
+    "dram_accesses",
+    "dram_access_energy_j",
     "level2_delay",
     "level2_throughput",
+    "implementation_fmax_mhz",
     "level2_valid",
+    "constraints_satisfied",
+    "constraint_violations",
+    "estimated_fps",
+    "level2_strategy",
+    "level2_explored_combinations",
     "level1_csv_path",
     "level2_csv_path",
 ]
@@ -48,6 +64,7 @@ class Level1Candidate:
     discrete_genome: list[int]
     architecture_config: Any
     accelerator: Any
+    activity_profile: WorkloadActivityProfile | None = None
 
 
 def iter_level1_genomes(result: Any) -> list[list[float]]:
@@ -93,7 +110,7 @@ def _as_list(value: Any) -> list[Any]:
     return [value]
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run a tiny TALOS Level 1 -> Level 2 full-flow example.",
     )
@@ -114,12 +131,39 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--level1-pop-size", type=int, default=4)
     parser.add_argument("--level1-generations", type=int, default=1)
+    parser.add_argument(
+        "--level1-objectives",
+        nargs="+",
+        choices=SUPPORTED_LEVEL1_OBJECTIVES,
+        default=LEVEL1_OBJECTIVES,
+    )
     parser.add_argument("--level2-pop-size", type=int, default=4)
     parser.add_argument("--level2-generations", type=int, default=1)
+    parser.add_argument(
+        "--level2-objectives",
+        nargs="+",
+        choices=SUPPORTED_LEVEL2_OBJECTIVES,
+        default=LEVEL2_OBJECTIVES,
+    )
+    parser.add_argument(
+        "--level2-strategy",
+        choices=["nsga2", "exhaustive"],
+        default="nsga2",
+    )
+    parser.add_argument(
+        "--level2-exhaustive-max-combinations",
+        type=int,
+        default=100_000,
+    )
     parser.add_argument("--max-architectures", type=int, default=1)
+    parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--debug", action="store_true")
-    return parser.parse_args()
+    parser.add_argument("--max-area-mm2", type=float, default=None)
+    parser.add_argument("--max-power-w", type=float, default=None)
+    parser.add_argument("--max-latency-cycles", type=float, default=None)
+    parser.add_argument("--min-frequency-mhz", type=float, default=None)
+    return parser.parse_args(argv)
 
 
 def main() -> int:
@@ -146,14 +190,22 @@ def main() -> int:
         print("ERROR: --max-architectures must be at least 1.", file=sys.stderr)
         return 2
 
+    constraints = UserConstraints(
+        max_area_mm2=args.max_area_mm2,
+        max_power_w=args.max_power_w,
+        max_latency_cycles=args.max_latency_cycles,
+        min_frequency_mhz=args.min_frequency_mhz,
+    )
+
     try:
         from talos.architecture.genome import decode_genome, gene_bounds
         from talos.architecture.level1_importer import (
             abstract_accelerator_from_level1_config,
         )
+        from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
         from talos.ga.pymoo_runner import run_nsga2_pymoo
         from talos.ip import IPPool
-        from talos.level2.runner import run_level2_nsga2
+        from talos.level2.runner import run_level2
     except ModuleNotFoundError as exc:
         missing = exc.name or str(exc)
         print(
@@ -166,21 +218,37 @@ def main() -> int:
         return 2
 
     pool = IPPool.from_yaml(ip_pool_path)
+    power_required = (
+        any(name in args.level2_objectives for name in ("energy", "power"))
+        or constraints.max_power_w is not None
+    )
+    activity_evaluator = (
+        ZigZagEvaluator(
+            workload=str(workload),
+            debug=args.debug,
+            workdir=str(results_dir / "level1_profiles"),
+            lpf_limit=1,
+            nb_spatial_mappings_generated=1,
+        )
+        if power_required
+        else None
+    )
 
     print("[Level 1] Running small architecture exploration...")
     try:
         level1_result = run_nsga2_pymoo(
             workload_path=str(workload),
-            objective_names=LEVEL1_OBJECTIVES,
+            objective_names=args.level1_objectives,
             pop_size=args.level1_pop_size,
             n_gen=args.level1_generations,
             seed=args.seed,
-            n_workers=1,
+            n_workers=args.workers,
             debug=args.debug,
             save_csv=True,
             results_dir=str(results_dir / "level1"),
             zigzag_lpf_limit=1,
             zigzag_spatial_mappings=1,
+            constraints=constraints,
         )
     except ModuleNotFoundError as exc:
         missing = exc.name or str(exc)
@@ -204,17 +272,22 @@ def main() -> int:
         summary_path = write_summary_csv(results_dir, [])
         print("[Level 1] No candidate architectures were returned; stopping.")
         print(f"Summary CSV written to: {summary_path}")
-        return 1
+        return 0
 
     candidates = select_level1_candidates(
         level1_genomes=level1_genomes,
         level1_objectives=level1_objectives,
+        level1_objective_names=args.level1_objectives,
         max_architectures=args.max_architectures,
         pool=pool,
         decode_genome=decode_genome,
         gene_bounds=gene_bounds,
         abstract_accelerator_from_level1_config=(
             abstract_accelerator_from_level1_config
+        ),
+        constraints=constraints,
+        evaluate_activity=(
+            None if activity_evaluator is None else activity_evaluator.evaluate
         ),
     )
     print(
@@ -225,7 +298,7 @@ def main() -> int:
         summary_path = write_summary_csv(results_dir, [])
         print("No Level 1 architecture was compatible with the IP pool.")
         print(f"Summary CSV written to: {summary_path}")
-        return 1
+        return 0
 
     summary_rows: list[dict[str, Any]] = []
     for candidate in candidates:
@@ -239,19 +312,23 @@ def main() -> int:
             for component in candidate.accelerator.components
         ]
         print(f"  Abstract components: {', '.join(component_summary)}")
-        print("  Running physical IP selection...")
+        print(f"  Running physical IP selection ({args.level2_strategy})...")
 
         try:
-            level2_result = run_level2_nsga2(
+            level2_result = run_level2(
                 accelerator=candidate.accelerator,
                 ip_pool=pool,
-                objective_names=LEVEL2_OBJECTIVES,
+                objective_names=args.level2_objectives,
+                strategy=args.level2_strategy,
                 pop_size=args.level2_pop_size,
                 n_gen=args.level2_generations,
                 seed=args.seed,
                 save_csv=True,
                 results_dir=str(results_dir / f"level2_arch_{arch_index}"),
                 debug=args.debug,
+                constraints=constraints,
+                activity_profile=candidate.activity_profile,
+                exhaustive_max_combinations=args.level2_exhaustive_max_combinations,
             )
         except Exception as exc:
             print(f"  Level 2 failed for this architecture: {exc}")
@@ -270,9 +347,12 @@ def main() -> int:
                 level1_discrete_genome=candidate.discrete_genome,
                 level1_architecture_config=asdict(candidate.architecture_config),
                 level1_objective_values=candidate.objective_values,
+                level1_objective_names=args.level1_objectives,
+                level2_objective_names=args.level2_objectives,
                 level1_csv_path=level1_csv_path,
                 level2_csv_path=level2_result.csv_path,
                 level2_solutions=level2_result.solutions,
+                constraints=constraints,
             )
         )
 
@@ -297,18 +377,26 @@ def select_level1_candidates(
     *,
     level1_genomes: list[list[float]],
     level1_objectives: list[list[float]],
+    level1_objective_names: list[str],
     max_architectures: int,
     pool: Any,
     decode_genome: Any,
     gene_bounds: Any,
     abstract_accelerator_from_level1_config: Any,
+    constraints: UserConstraints | None = None,
+    evaluate_activity: Any | None = None,
 ) -> list[Level1Candidate]:
     candidates: list[Level1Candidate] = []
+    seen_discrete_genomes: set[tuple[int, ...]] = set()
     bounds = gene_bounds()
 
     for source_index, genome in enumerate(level1_genomes):
         if len(candidates) >= max_architectures:
             break
+        discrete_genome = discretize_genome(genome, bounds)
+        discrete_key = tuple(discrete_genome)
+        if discrete_key in seen_discrete_genomes:
+            continue
         try:
             config = decode_genome(genome)
             accelerator = abstract_accelerator_from_level1_config(config)
@@ -329,18 +417,62 @@ def select_level1_candidates(
             if source_index < len(level1_objectives)
             else []
         )
+        constraint_error = first_constraint_feasibility_error(
+            constraints=constraints,
+            level1_objective_names=level1_objective_names,
+            objective_values=objective_values,
+        )
+        if constraint_error:
+            print(
+                f"[Level 1] Skipping architecture {source_index}: "
+                f"{constraint_error}"
+            )
+            continue
+
+        activity_profile = None
+        if evaluate_activity is not None:
+            activity_result = evaluate_activity(genome)
+            if not activity_result.valid or activity_result.activity_profile is None:
+                print(
+                    f"[Level 1] Skipping architecture {source_index}: "
+                    f"{activity_result.error_message or 'activity profile is unavailable'}"
+                )
+                continue
+            activity_profile = activity_result.activity_profile
+
+        seen_discrete_genomes.add(discrete_key)
         candidates.append(
             Level1Candidate(
                 source_index=source_index,
                 raw_genome=genome,
                 objective_values=objective_values,
-                discrete_genome=discretize_genome(genome, bounds),
+                discrete_genome=discrete_genome,
                 architecture_config=config,
                 accelerator=accelerator,
+                activity_profile=activity_profile,
             )
         )
 
     return candidates
+
+
+def first_constraint_feasibility_error(
+    *,
+    constraints: UserConstraints | None,
+    level1_objective_names: list[str],
+    objective_values: list[float],
+) -> str:
+    if constraints is None:
+        return ""
+
+    level1_values = dict(zip(level1_objective_names, objective_values))
+    latency_cycles = level1_values.get("latency")
+    if latency_cycles is not None:
+        violations = constraints.level1_violations(float(latency_cycles))
+        if violations:
+            return "; ".join(violations)
+
+    return ""
 
 
 def first_ip_compatibility_error(accelerator: Any, pool: Any) -> str:
@@ -370,45 +502,98 @@ def build_summary_rows(
     level1_discrete_genome: list[int],
     level1_architecture_config: dict[str, Any],
     level1_objective_values: list[float],
+    level1_objective_names: list[str],
+    level2_objective_names: list[str],
     level1_csv_path: str,
     level2_csv_path: Path | None,
     level2_solutions: list[dict[str, Any]],
+    constraints: UserConstraints | None,
 ) -> list[dict[str, Any]]:
     if not level2_solutions:
         return []
 
-    level1_by_name = dict(zip(LEVEL1_OBJECTIVES, level1_objective_values))
+    level1_by_name = dict(zip(level1_objective_names, level1_objective_values))
+    latency_cycles = level1_by_name.get("latency", "")
+    area_proxy = level1_by_name.get("area", "")
     rows: list[dict[str, Any]] = []
     for solution in level2_solutions:
+        implementation_fmax_mhz = solution.get("implementation_fmax_mhz")
+        constraint_violations = _combined_constraint_violations(
+            constraints=constraints,
+            latency_cycles=latency_cycles,
+            level2_violations=solution.get("constraint_violations", []),
+        )
+        constraints_satisfied = bool(solution.get("valid", False)) and not constraint_violations
+        fps = (
+            estimated_fps(
+                latency_cycles=float(latency_cycles),
+                implementation_fmax_mhz=implementation_fmax_mhz,
+            )
+            if constraints_satisfied and latency_cycles != ""
+            else None
+        )
         rows.append(
             {
                 "architecture_index": architecture_index,
                 "level1_raw_genome": level1_raw_genome,
                 "level1_discrete_genome": level1_discrete_genome,
                 "level1_architecture_config": level1_architecture_config,
-                "level1_objective_names": LEVEL1_OBJECTIVES,
+                "level1_objective_names": level1_objective_names,
                 "level1_objective_values": level1_objective_values,
+                "level1_latency_cycles": latency_cycles,
                 "level1_latency": level1_by_name.get("latency", ""),
                 "level1_energy": level1_by_name.get("energy", ""),
-                "level1_area": level1_by_name.get("area", ""),
+                "level1_area_proxy": area_proxy,
                 "level2_solution_index": solution.get("solution_index", ""),
                 "level2_genome": solution.get("genome", ""),
                 "selected_ips": solution.get("selected_ips", ""),
                 "level2_objective_names": solution.get(
                     "objective_names",
-                    LEVEL2_OBJECTIVES,
+                    level2_objective_names,
                 ),
                 "level2_objective_values": solution.get("objective_values", ""),
                 "level2_area": solution.get("area", ""),
                 "level2_power": solution.get("power", ""),
+                "workload_energy_j": solution.get("workload_energy_j", ""),
+                "workload_latency_s": solution.get("workload_latency_s", ""),
+                "dram_accesses": solution.get("dram_accesses", ""),
+                "dram_access_energy_j": solution.get(
+                    "dram_access_energy_j",
+                    "",
+                ),
                 "level2_delay": solution.get("delay", ""),
                 "level2_throughput": solution.get("throughput", ""),
+                "implementation_fmax_mhz": implementation_fmax_mhz,
                 "level2_valid": solution.get("valid", ""),
+                "constraints_satisfied": constraints_satisfied,
+                "constraint_violations": constraint_violations,
+                "estimated_fps": "" if fps is None else fps,
+                "level2_strategy": solution.get("strategy", ""),
+                "level2_explored_combinations": solution.get(
+                    "explored_combinations",
+                    "",
+                ),
                 "level1_csv_path": level1_csv_path,
                 "level2_csv_path": "" if level2_csv_path is None else str(level2_csv_path),
             }
         )
     return rows
+
+
+def _combined_constraint_violations(
+    *,
+    constraints: UserConstraints | None,
+    latency_cycles: Any,
+    level2_violations: Any,
+) -> list[str]:
+    violations: list[str] = []
+    if constraints is not None and latency_cycles != "":
+        violations.extend(constraints.level1_violations(float(latency_cycles)))
+    if isinstance(level2_violations, str):
+        violations.append(level2_violations)
+    else:
+        violations.extend(level2_violations or [])
+    return violations
 
 
 def write_summary_csv(results_dir: Path, rows: list[dict[str, Any]]) -> Path:
@@ -437,8 +622,14 @@ def print_first_solution(solution: dict[str, Any]) -> None:
     print("  First solution:")
     print(f"    area: {solution.get('area')}")
     print(f"    power: {solution.get('power')}")
+    print(f"    workload_energy_j: {solution.get('workload_energy_j')}")
+    print(f"    workload_latency_s: {solution.get('workload_latency_s')}")
+    print(f"    dram_accesses: {solution.get('dram_accesses')}")
+    print(f"    dram_access_energy_j: {solution.get('dram_access_energy_j')}")
     print(f"    delay: {solution.get('delay')}")
     print(f"    throughput: {solution.get('throughput')}")
+    print(f"    fmax_mhz: {solution.get('implementation_fmax_mhz')}")
+    print(f"    constraints_satisfied: {solution.get('constraints_satisfied')}")
     print(f"    selected IPs: {solution.get('selected_ips')}")
 
 

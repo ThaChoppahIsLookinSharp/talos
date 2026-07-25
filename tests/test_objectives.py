@@ -1,29 +1,35 @@
 from pathlib import Path
+import sys
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
 
 from talos.evaluation.objective_adapter import ObjectiveAdapter
 from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
 
-workload = Path("workloads/alexnet.onnx").resolve()
 
-evaluator = ZigZagEvaluator(str(workload), debug=False)
-adapter = ObjectiveAdapter(evaluator)
+def main() -> None:
+    workload = Path("workloads/alexnet.onnx").resolve()
+    evaluator = ZigZagEvaluator(str(workload), debug=False)
+    adapter = ObjectiveAdapter(evaluator)
+    genome = [2, 2, 3, 2, 3, 2, 3]
 
-genome = [2, 2, 3, 2, 3, 2, 3]
+    print("Base methods:")
+    print("latency:", adapter.latency(genome))
+    print("energy:", adapter.energy(genome))
+    print("area:", adapter.area(genome))
+    print("vector:", adapter.vector(genome))
 
-print("Base methods:")
-print("latency:", adapter.latency(genome))
-print("energy:", adapter.energy(genome))
-print("area:", adapter.area(genome))
-print("vector:", adapter.vector(genome))
+    print("\nNamed objectives:")
+    for name in ["latency", "energy", "area", "edp", "eap", "alp"]:
+        print(f"{name}: {adapter.evaluate_objective(name, genome)}")
 
-print("\nNamed objectives:")
-for name in ["latency", "energy", "area", "edp", "eap", "alp"]:
-    value = adapter.evaluate_objective(name, genome)
-    print(f"{name}: {value}")
+    print("\nCallable objectives:")
+    names = ["latency", "energy", "area", "edp"]
+    for name, objective in zip(names, adapter.build_objectives(names), strict=True):
+        print(f"{name}: {objective(genome)}")
 
-print("\nCallable objectives:")
-objective_names = ["latency", "energy", "area", "edp"]
-objectives = adapter.build_objectives(objective_names)
 
-for name, fn in zip(objective_names, objectives):
-    print(f"{name}: {fn(genome)}")
+if __name__ == "__main__":
+    main()

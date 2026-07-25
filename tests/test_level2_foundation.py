@@ -13,7 +13,7 @@ from talos.architecture import (
     decode_genome,
     default_genome,
 )
-from talos.ip import IPBlock, IPPool
+from talos.ip import IPBlock, IPPool, PowerCharacterization
 from talos.level2 import Level2Evaluator, Level2GenomeSpec
 from talos.level2.genome import ImplementedAccelerator, ImplementedComponent
 
@@ -26,10 +26,34 @@ ZIGZAG_YAML_PATH = REPO_ROOT / "configs" / "zigzag_accelerator_example.yaml"
 class IPFoundationTests(unittest.TestCase):
     def test_ipblock_validates_fields(self) -> None:
         with self.assertRaisesRegex(ValueError, "throughput"):
-            IPBlock(id="bad", type="pe", area=1.0, power=1.0, throughput=0.0, delay=1.0)
+            IPBlock(id="bad", type="pe", area=1.0, throughput=0.0, delay=1.0)
 
-        block = IPBlock(id="pe0", type="pe", area=1.0, power=2.0, throughput=1.0, delay=0.5)
+        block = IPBlock(id="pe0", type="pe", area=1.0, throughput=1.0, delay=0.5)
         self.assertEqual(block.id, "pe0")
+
+    def test_power_characterization_validates_fields(self) -> None:
+        values = {
+            "source": "synthetic",
+            "activity_method": "vectorless",
+            "reference_frequency_mhz": 500.0,
+            "p_idle_w": 0.1,
+            "p_active_w": 0.2,
+        }
+        for field, value in (
+            ("source", ""),
+            ("activity_method", ""),
+            ("reference_frequency_mhz", 0),
+            ("reference_frequency_mhz", float("inf")),
+            ("p_idle_w", -1),
+            ("p_active_w", -1),
+        ):
+            with self.subTest(field=field, value=value):
+                with self.assertRaises(ValueError):
+                    PowerCharacterization(**{**values, field: value})
+        with self.assertRaisesRegex(ValueError, "p_active_w"):
+            PowerCharacterization(**{**values, "p_idle_w": 0.3})
+        with self.assertRaisesRegex(ValueError, "metadata"):
+            PowerCharacterization(**{**values, "metadata": []})  # type: ignore[arg-type]
 
     def test_ip_pool_loads_from_yaml_and_filters_by_type(self) -> None:
         pool = IPPool.from_yaml(IP_POOL_PATH)
@@ -37,6 +61,29 @@ class IPFoundationTests(unittest.TestCase):
 
         self.assertGreaterEqual(len(pes), 2)
         self.assertTrue(all(ip.type == "pe" for ip in pes))
+        self.assertIsInstance(pes[0].power_model, PowerCharacterization)
+        self.assertEqual(
+            pool.to_dict()["ips"][0]["power_model"]["p_active_w"],
+            pes[0].power_model.p_active_w,
+        )
+
+    def test_ip_pool_rejects_old_power_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy.yaml"
+            path.write_text(
+                """
+ips:
+  - id: pe
+    type: pe
+    area: 1
+    power: 2
+    throughput: 1
+    delay: 1
+""".strip(),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "Legacy field 'power'"):
+                IPPool.from_yaml(path)
 
     def test_ip_pool_finds_compatible_components(self) -> None:
         pool = IPPool.from_yaml(IP_POOL_PATH)
@@ -72,8 +119,17 @@ class AbstractAcceleratorImporterTests(unittest.TestCase):
         self.assertIsInstance(accelerator, AbstractAccelerator)
         self.assertEqual(accelerator.components[0].name, "pe_array")
         self.assertEqual(accelerator.components[0].count, config.pe_x * config.pe_y)
-        self.assertTrue(any(component.name == "gb" for component in accelerator.components))
+        gb = next(component for component in accelerator.components if component.name == "gb")
+        self.assertEqual(gb.count, 1)
         self.assertFalse(any(component.name == "dram" for component in accelerator.components))
+
+        split_config = decode_genome([1, 2, 0, 0, 0, 0, 1])
+        split_gb = next(
+            component
+            for component in abstract_accelerator_from_level1_config(split_config).components
+            if component.name == "gb"
+        )
+        self.assertEqual(split_gb.count, split_config.pe_y)
 
     def test_zigzag_yaml_importer_builds_components(self) -> None:
         accelerator = abstract_accelerator_from_zigzag_yaml(str(ZIGZAG_YAML_PATH))
@@ -160,7 +216,9 @@ class Level2EvaluatorTests(unittest.TestCase):
 
         self.assertTrue(result.valid)
         self.assertGreater(result.area, 0.0)
-        self.assertGreater(result.power, 0.0)
+        self.assertIsNone(result.power)
+        self.assertIsNone(result.workload_energy_j)
+        self.assertIsNone(result.workload_latency_s)
         self.assertGreater(result.delay, 0.0)
         self.assertGreater(result.throughput, 0.0)
 
@@ -176,7 +234,6 @@ class Level2EvaluatorTests(unittest.TestCase):
             id="rf_bad",
             type="register_file",
             area=1.0,
-            power=1.0,
             throughput=1.0,
             delay=1.0,
             capacity_bits=512,
