@@ -36,3 +36,7 @@ htmlcov/
 outputs/
 results/
 .talos_zigzag/
+reports/
+talos_output_*/
+*.log
+*.zip
