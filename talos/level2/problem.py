@@ -48,7 +48,9 @@ class Level2PymooProblem(ElementwiseProblem):
         self.activity_profile = activity_profile
         self._validate_objective_names(self.objective_names)
         self.spec = Level2GenomeSpec.from_accelerator_and_pool(accelerator, ip_pool)
-        if any(name in self.objective_names for name in ("energy", "power")) or (
+        if activity_profile is not None or any(
+            name in self.objective_names for name in ("energy", "power")
+        ) or (
             constraints is not None and constraints.max_power_w is not None
         ):
             validate_power_aware_exploration(self.spec, activity_profile)

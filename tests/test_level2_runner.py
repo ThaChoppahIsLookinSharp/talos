@@ -240,6 +240,29 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
     "pymoo is not installed",
 )
 class Level2RunnerTests(unittest.TestCase):
+    def test_level2_reports_power_for_area_only_search(self) -> None:
+        ip_pool = IPPool.from_yaml(IP_POOL_PATH)
+        accelerator = abstract_accelerator_from_zigzag_yaml(str(ZIGZAG_YAML_PATH))
+
+        result = run_level2_nsga2(
+            accelerator=accelerator,
+            ip_pool=ip_pool,
+            objective_names=["area"],
+            pop_size=4,
+            n_gen=1,
+            activity_profile=activity_profile(),
+            save_csv=False,
+        )
+
+        self.assertTrue(result.solutions)
+        self.assertTrue(
+            all(
+                row["power"] is not None
+                and row["workload_energy_j"] is not None
+                for row in result.solutions
+            )
+        )
+
     def test_level2_nsga2_returns_no_invalid_solutions(self) -> None:
         ip_pool = IPPool.from_yaml(IP_POOL_PATH)
         accelerator = abstract_accelerator_from_zigzag_yaml(str(ZIGZAG_YAML_PATH))

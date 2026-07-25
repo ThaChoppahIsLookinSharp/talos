@@ -218,20 +218,12 @@ def main() -> int:
         return 2
 
     pool = IPPool.from_yaml(ip_pool_path)
-    power_required = (
-        any(name in args.level2_objectives for name in ("energy", "power"))
-        or constraints.max_power_w is not None
-    )
-    activity_evaluator = (
-        ZigZagEvaluator(
-            workload=str(workload),
-            debug=args.debug,
-            workdir=str(results_dir / "level1_profiles"),
-            lpf_limit=1,
-            nb_spatial_mappings_generated=1,
-        )
-        if power_required
-        else None
+    activity_evaluator = ZigZagEvaluator(
+        workload=str(workload),
+        debug=args.debug,
+        workdir=str(results_dir / "level1_profiles"),
+        lpf_limit=1,
+        nb_spatial_mappings_generated=1,
     )
 
     print("[Level 1] Running small architecture exploration...")
@@ -287,9 +279,7 @@ def main() -> int:
             abstract_accelerator_from_level1_config
         ),
         constraints=constraints,
-        evaluate_activity=(
-            None if activity_evaluator is None else activity_evaluator.evaluate
-        ),
+        evaluate_activity=activity_evaluator.evaluate,
         failures=flow_failures,
     )
     print(

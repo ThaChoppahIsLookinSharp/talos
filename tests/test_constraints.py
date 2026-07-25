@@ -453,10 +453,13 @@ class UserConstraintsTests(unittest.TestCase):
                         patch(
                             "examples.full_flow_example.select_level1_candidates",
                             return_value=[candidate],
-                        ),
+                        ) as select_mock,
                         run_patch,
                     ):
                         self.assertEqual(full_flow_main(), expected_code)
+                        self.assertIsNotNone(
+                            select_mock.call_args.kwargs["evaluate_activity"]
+                        )
 
     def test_constraint_sweep_builds_seven_worker_aware_commands(self) -> None:
         cases = sweep_cases()
