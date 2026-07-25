@@ -8,6 +8,7 @@ from talos.ip import IPBlock, PowerCharacterization
 from talos.level2.genome import ImplementedAccelerator, ImplementedComponent
 from talos.level2.workload_power import (
     _component_power_w,
+    _memory_power,
     _memory_utilization,
     _pe_utilization,
     evaluate_workload_power,
@@ -106,6 +107,31 @@ class UtilizationTests(unittest.TestCase):
             _memory_utilization(accesses=1, **{**common, "instance_count": 0})
         with self.assertRaisesRegex(ValueError, "accesses_per_cycle"):
             _memory_utilization(accesses=1, **{**common, "accesses_per_cycle": 0})
+
+    def test_memory_power_normalizes_accesses_to_selected_width(self) -> None:
+        component = ImplementedComponent(
+            abstract_component=AbstractComponent(
+                name="gb",
+                type="global_buffer",
+                required_bandwidth_bits=64,
+            ),
+            ip=IPBlock(
+                id="gb_128b",
+                type="global_buffer",
+                area=1,
+                throughput=1,
+                delay=1,
+                fmax_mhz=100,
+                bandwidth_bits=128,
+                metadata={"accesses_per_cycle": 1},
+                power_model=_model(0, 1),
+            ),
+        )
+        layer = LayerActivity("layer", 100, 0, 0, {"gb": 100})
+
+        power_w = _memory_power(component, layer, 100, 100)
+
+        self.assertEqual(power_w, 0.5)
 
     def test_component_power_interpolation(self) -> None:
         model = _model(1.0, 3.0)

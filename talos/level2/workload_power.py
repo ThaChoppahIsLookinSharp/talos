@@ -149,6 +149,14 @@ def _memory_power(
     operating_frequency_mhz: float,
 ) -> float:
     count = component.abstract_component.count
+    source_width_bits = component.abstract_component.required_bandwidth_bits
+    selected_width_bits = component.ip.bandwidth_bits
+    if source_width_bits is not None and selected_width_bits is not None:
+        if selected_width_bits <= 0:
+            raise ValueError(
+                f"Selected memory IP {component.ip.id!r} requires positive bandwidth_bits."
+            )
+        accesses *= source_width_bits / selected_width_bits
     rate = _positive_metadata(
         component.ip.metadata,
         "accesses_per_cycle",
