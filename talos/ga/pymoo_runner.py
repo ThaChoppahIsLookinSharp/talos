@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import csv
 from dataclasses import dataclass
 from datetime import datetime
@@ -15,10 +16,15 @@ from pymoo.algorithms.moo.nsga2 import NSGA2
 from pymoo.config import Config
 from pymoo.core.problem import ElementwiseProblem, StarmapParallelization
 from pymoo.optimize import minimize
+from pymoo.operators.crossover.sbx import SBX
+from pymoo.operators.mutation.pm import PM
+from pymoo.operators.repair.rounding import RoundingRepair
+from pymoo.operators.sampling.rnd import IntegerRandomSampling
 
 from talos.architecture.genome import GENOME_LENGTH, gene_bounds, gene_names
+from talos.constraints import UserConstraints
 from talos.evaluation.objective_adapter import ObjectiveAdapter
-from talos.evaluation.zigzag_evaluator import EvaluationResult, ZigZagEvaluator
+from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
 
 
 DEFAULT_OBJECTIVES = ["latency", "energy", "area"]
@@ -43,9 +49,9 @@ class TalosPymooProblem(ElementwiseProblem):
     """
     Element-wise pymoo problem for TALOS.
 
-    The genome is encoded as catalog indices. pymoo is allowed to operate over
-    numeric variables inside the bounds; TALOS keeps the discrete semantics by
-    rounding and clamping in the existing genome decoder/evaluator.
+    The genome is encoded as integer catalog indices. Sampling, crossover, and
+    mutation keep those indices discrete so pymoo can eliminate duplicate
+    architectures before evaluation.
 
     Extension point: if a future backend evaluates a whole population on GPU,
     this class can be replaced by a vectorized pymoo Problem while keeping the
@@ -62,6 +68,7 @@ class TalosPymooProblem(ElementwiseProblem):
         workdir: str | None = None,
         zigzag_lpf_limit: int = 1,
         zigzag_spatial_mappings: int = 1,
+        constraints: UserConstraints | None = None,
     ) -> None:
         self.workload_path = workload_path
         self.objective_names = list(objective_names)
@@ -69,6 +76,7 @@ class TalosPymooProblem(ElementwiseProblem):
         self.workdir = workdir
         self.zigzag_lpf_limit = zigzag_lpf_limit
         self.zigzag_spatial_mappings = zigzag_spatial_mappings
+        self.constraints = constraints
         self._adapter = adapter
 
         bounds = gene_bounds()
@@ -78,6 +86,8 @@ class TalosPymooProblem(ElementwiseProblem):
         problem_kwargs: dict[str, Any] = {
             "n_var": GENOME_LENGTH,
             "n_obj": len(self.objective_names),
+            "n_ieq_constr": len(self._constraint_values(INVALID_OBJECTIVE_VALUE)),
+            "vtype": int,
             "xl": xl,
             "xu": xu,
         }
@@ -123,12 +133,22 @@ class TalosPymooProblem(ElementwiseProblem):
         try:
             objectives = self.adapter.build_objectives(self.objective_names)
             values = [float(objective(genome)) for objective in objectives]
+            result = self.adapter.evaluate(genome)
+            constraint_values = self._constraint_values(result.latency)
         except Exception as exc:
             if self.debug:
                 print(f"pymoo evaluation failed for genome {genome}: {exc}")
             values = [INVALID_OBJECTIVE_VALUE] * len(self.objective_names)
+            constraint_values = self._constraint_values(INVALID_OBJECTIVE_VALUE)
 
         out["F"] = values
+        if constraint_values:
+            out["G"] = constraint_values
+
+    def _constraint_values(self, latency_cycles: float) -> list[float]:
+        if self.constraints is None:
+            return []
+        return self.constraints.level1_constraint_values(latency_cycles)
 
 
 def run_nsga2_pymoo(
@@ -143,6 +163,7 @@ def run_nsga2_pymoo(
     results_dir: str | None = None,
     zigzag_lpf_limit: int = 1,
     zigzag_spatial_mappings: int = 1,
+    constraints: UserConstraints | None = None,
 ):
     objective_names = list(objective_names or DEFAULT_OBJECTIVES)
     _validate_run_config(
@@ -182,6 +203,7 @@ def run_nsga2_pymoo(
                 workdir=str(workdir),
                 zigzag_lpf_limit=zigzag_lpf_limit,
                 zigzag_spatial_mappings=zigzag_spatial_mappings,
+                constraints=constraints,
             )
         else:
             problem = TalosPymooProblem(
@@ -192,9 +214,10 @@ def run_nsga2_pymoo(
                 workdir=str(workdir),
                 zigzag_lpf_limit=zigzag_lpf_limit,
                 zigzag_spatial_mappings=zigzag_spatial_mappings,
+                constraints=constraints,
             )
 
-        algorithm = NSGA2(pop_size=pop_size)
+        algorithm = _build_nsga2(pop_size)
         result = minimize(
             problem,
             algorithm,
@@ -219,6 +242,7 @@ def run_nsga2_pymoo(
                 seed=seed,
                 n_workers=n_workers,
                 results_dir=results_dir,
+                constraints=constraints,
             )
         )
 
@@ -232,6 +256,15 @@ def run_nsga2_pymoo(
         n_workers=n_workers,
     )
     return result
+
+
+def _build_nsga2(pop_size: int) -> NSGA2:
+    return NSGA2(
+        pop_size=pop_size,
+        sampling=IntegerRandomSampling(),
+        crossover=SBX(prob=0.9, eta=15, vtype=float, repair=RoundingRepair()),
+        mutation=PM(eta=20, vtype=float, repair=RoundingRepair()),
+    )
 
 
 def _validate_run_config(
@@ -270,6 +303,7 @@ def _write_results_csv(
     seed: int,
     n_workers: int,
     results_dir: str | None,
+    constraints: UserConstraints | None,
 ) -> Path:
     output_dir = Path(results_dir) if results_dir is not None else Path.cwd() / "results"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -288,10 +322,14 @@ def _write_results_csv(
         "n_gen",
         "seed",
         "n_workers",
+        "latency_cycles",
         "latency",
         "energy",
+        "area_proxy",
         "area",
         "valid",
+        "constraints_satisfied",
+        "constraint_violations",
         "error_message",
     ]
     fieldnames.extend(f"raw_{name}" for name in names)
@@ -310,12 +348,19 @@ def _write_results_csv(
             objective_values = (
                 objective_rows[idx] if idx < len(objective_rows) else None
             )
-            base_result = _base_result_from_objectives(
-                objective_names,
-                objective_values,
+            objective_values_by_name = dict(zip(objective_names, objective_values or []))
+            latency = objective_values_by_name.get("latency", "")
+            energy = objective_values_by_name.get("energy", "")
+            area = objective_values_by_name.get("area", "")
+            constraint_violations = (
+                []
+                if constraints is None or latency == ""
+                else constraints.level1_violations(float(latency))
             )
-            if base_result is None:
-                base_result = _safe_evaluate_base(adapter, raw_genome)
+            objectives_valid = objective_values is not None and all(
+                math.isfinite(float(value)) for value in objective_values
+            )
+            valid = objectives_valid and not constraint_violations
 
             row: dict[str, Any] = {
                 "solution_index": idx,
@@ -327,11 +372,15 @@ def _write_results_csv(
                 "n_gen": n_gen,
                 "seed": seed,
                 "n_workers": n_workers,
-                "latency": base_result.latency,
-                "energy": base_result.energy,
-                "area": base_result.area,
-                "valid": base_result.valid,
-                "error_message": base_result.error_message,
+                "latency_cycles": latency,
+                "latency": latency,
+                "energy": energy,
+                "area_proxy": area,
+                "area": area,
+                "valid": valid,
+                "constraints_satisfied": valid,
+                "constraint_violations": json.dumps(constraint_violations),
+                "error_message": "" if objectives_valid else "Non-finite objective returned by pymoo.",
             }
             row.update({f"raw_{name}": raw_genome[i] for i, name in enumerate(names)})
             row.update(
@@ -377,48 +426,6 @@ def _result_objective_rows(result: Any) -> list[list[float]]:
     return [[float(value) for value in row.tolist()] for row in f]
 
 
-def _base_result_from_objectives(
-    objective_names: list[str],
-    objective_values: list[float] | None,
-) -> EvaluationResult | None:
-    if objective_values is None:
-        return None
-
-    values_by_name = dict(zip(objective_names, objective_values, strict=True))
-    required = {"latency", "energy", "area"}
-    if not required.issubset(values_by_name):
-        return None
-
-    latency = values_by_name["latency"]
-    energy = values_by_name["energy"]
-    area = values_by_name["area"]
-    valid = all(math.isfinite(value) for value in (latency, energy, area))
-
-    return EvaluationResult(
-        latency=latency,
-        energy=energy,
-        area=area,
-        valid=valid,
-        error_message=None if valid else "Non-finite objective returned by pymoo.",
-    )
-
-
-def _safe_evaluate_base(
-    adapter: ObjectiveAdapter,
-    genome: list[float],
-) -> EvaluationResult:
-    try:
-        return adapter.evaluate(genome)
-    except Exception as exc:
-        return EvaluationResult(
-            latency=INVALID_OBJECTIVE_VALUE,
-            energy=INVALID_OBJECTIVE_VALUE,
-            area=INVALID_OBJECTIVE_VALUE,
-            valid=False,
-            error_message=str(exc),
-        )
-
-
 def _objective_value_for_csv(
     adapter: ObjectiveAdapter,
     name: str,
@@ -432,15 +439,7 @@ def _objective_value_for_csv(
             value = float(objective_values[idx])
             return value if math.isfinite(value) else INVALID_OBJECTIVE_VALUE
 
-    return _safe_objective(adapter, name, genome)
-
-
-def _safe_objective(adapter: ObjectiveAdapter, name: str, genome: list[float]) -> float:
-    try:
-        value = float(adapter.evaluate_objective(name, genome))
-        return value if math.isfinite(value) else INVALID_OBJECTIVE_VALUE
-    except Exception:
-        return INVALID_OBJECTIVE_VALUE
+    return INVALID_OBJECTIVE_VALUE
 
 
 def _discretize_genome(genome: list[float]) -> list[int]:
@@ -455,7 +454,15 @@ def _discretize_genome(genome: list[float]) -> list[int]:
 
 def main() -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    workload = repo_root / "workloads" / "alexnet.onnx"
+    parser = argparse.ArgumentParser(description="Run a small pymoo NSGA-II demo.")
+    parser.add_argument(
+        "--workload",
+        type=Path,
+        default=repo_root / "workloads" / "alexnet.onnx",
+        help="Path to the ONNX workload.",
+    )
+    args = parser.parse_args()
+    workload = args.workload.expanduser().resolve()
 
     result = run_nsga2_pymoo(
         workload_path=str(workload),

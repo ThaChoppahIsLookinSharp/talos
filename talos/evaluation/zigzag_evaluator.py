@@ -7,10 +7,15 @@ import io
 import logging
 import os
 from pathlib import Path
+import pickle
 from typing import Any
 import yaml
 
 from talos.architecture.genome import ArchitectureConfig, decode_genome
+from talos.evaluation.workload_activity import (
+    WorkloadActivityProfile,
+    extract_workload_activity_profile,
+)
 
 
 @dataclass
@@ -20,6 +25,7 @@ class EvaluationResult:
     area: float
     valid: bool
     error_message: str | None = None
+    activity_profile: WorkloadActivityProfile | None = None
 
 
 class ZigZagEvaluator:
@@ -75,6 +81,7 @@ class ZigZagEvaluator:
                 energy=float(energy),
                 area=float(area),
                 valid=True,
+                activity_profile=extract_workload_activity_profile(cme),
             )
 
         except Exception as exc:
@@ -109,17 +116,22 @@ class ZigZagEvaluator:
     def _run_zigzag(self, accelerator_yaml_path: str) -> tuple[float, float, Any]:
         from zigzag.api import get_hardware_performance_zigzag
 
-        return get_hardware_performance_zigzag(
+        dump_folder = self._next_dump_folder()
+        pickle_path = Path(dump_folder) / "list_of_cmes.pickle"
+        energy, latency, _cumulative_cme = get_hardware_performance_zigzag(
             workload=self.workload,
             accelerator=accelerator_yaml_path,
             mapping=self.mapping_yaml_path,
             opt=self.opt,
-            dump_folder=self._next_dump_folder(),
-            pickle_filename=None,
+            dump_folder=dump_folder,
+            pickle_filename=str(pickle_path),
             lpf_limit=self.lpf_limit,
             nb_spatial_mappings_generated=self.nb_spatial_mappings_generated,
             loma_show_progress_bar=self.debug,
         )
+        with pickle_path.open("rb") as handle:
+            layer_cmes = pickle.load(handle)
+        return energy, latency, layer_cmes
 
     def _next_dump_folder(self) -> str:
         """

@@ -7,7 +7,7 @@ from typing import Any
 import yaml
 
 from talos.architecture.abstract_accelerator import AbstractComponent
-from talos.ip.ip_characterization import IPBlock
+from talos.ip.ip_characterization import IPBlock, PowerCharacterization
 
 
 class IPPool:
@@ -30,8 +30,21 @@ class IPPool:
         for index, raw_ip in enumerate(raw_ips):
             if not isinstance(raw_ip, dict):
                 raise ValueError(f"IP entry {index} must be a mapping.")
+            if "power" in raw_ip:
+                raise ValueError(
+                    "Legacy field 'power' is not supported. Use "
+                    "power_model.p_idle_w and power_model.p_active_w."
+                )
             try:
-                ip_blocks.append(IPBlock(**raw_ip))
+                values = dict(raw_ip)
+                raw_power_model = values.get("power_model")
+                if raw_power_model is not None:
+                    if not isinstance(raw_power_model, dict):
+                        raise ValueError(
+                            f"IP entry {index} power_model must be a mapping."
+                        )
+                    values["power_model"] = PowerCharacterization(**raw_power_model)
+                ip_blocks.append(IPBlock(**values))
             except TypeError as exc:
                 raise ValueError(f"Invalid IP entry at index {index}: {raw_ip!r}") from exc
         return cls(ip_blocks)

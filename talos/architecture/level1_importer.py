@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+from math import prod
+
 from talos.architecture.abstract_accelerator import AbstractAccelerator, AbstractComponent
 from talos.architecture.genome import ArchitectureConfig
 
 
 def abstract_accelerator_from_level1_config(config: ArchitectureConfig) -> AbstractAccelerator:
     pe_count = config.pe_x * config.pe_y
+    gb_count = prod(
+        size
+        for dimension, size in (("D1", config.pe_x), ("D2", config.pe_y))
+        if dimension not in config.gb_served_dims
+    )
     components = [
         AbstractComponent(
             name="pe_array",
@@ -40,7 +47,7 @@ def abstract_accelerator_from_level1_config(config: ArchitectureConfig) -> Abstr
         AbstractComponent(
             name="gb",
             type="global_buffer",
-            count=1,
+            count=gb_count,
             required_capacity_bits=config.gb_size_bits,
             required_bandwidth_bits=config.gb_bw_bits,
             attributes={"served_dimensions": list(config.gb_served_dims)},

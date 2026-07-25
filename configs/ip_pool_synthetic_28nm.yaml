@@ -1,0 +1,321 @@
+ips:
+  - id: pe_mac_8b_low_power
+    type: pe
+    area: 0.0008
+    throughput: 1.0
+    delay: 1.0
+    fmax_mhz: 550.0
+    metadata:
+      precision_bits: 8
+      macs_per_cycle: 1
+      disclaimer: "Synthetic values for tests only; not TSMC65 characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.00010
+      p_active_w: 0.00035
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid MAC operations."
+        active_mode: "One valid MAC per cycle."
+
+  - id: pe_mac_8b_fast
+    type: pe
+    area: 0.0013
+    throughput: 2.0
+    delay: 0.6
+    fmax_mhz: 900.0
+    metadata:
+      precision_bits: 8
+      macs_per_cycle: 1
+      disclaimer: "Synthetic values for tests only; not TSMC65 characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.00015
+      p_active_w: 0.00075
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid MAC operations."
+        active_mode: "One valid MAC per cycle."
+
+  - id: rf_512b_64b
+    type: register_file
+    area: 0.00025
+    throughput: 1.0
+    delay: 1.0
+    fmax_mhz: 850.0
+    capacity_bits: 512
+    bandwidth_bits: 64
+    metadata:
+      accesses_per_cycle: 1
+      disclaimer: "Synthetic values for tests only; not TSMC65 characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.00001
+      p_active_w: 0.00005
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid memory access."
+        active_mode: "One generic memory access per cycle."
+        active_access_mix: "Synthetic representative read/write mix."
+
+  - id: rf_1kb_128b
+    type: register_file
+    area: 0.00040
+    throughput: 1.0
+    delay: 1.1
+    fmax_mhz: 800.0
+    capacity_bits: 1024
+    bandwidth_bits: 128
+    metadata:
+      accesses_per_cycle: 1
+      disclaimer: "Synthetic values for tests only; not TSMC65 characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.00002
+      p_active_w: 0.00008
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid memory access."
+        active_mode: "One generic memory access per cycle."
+        active_access_mix: "Synthetic representative read/write mix."
+
+  - id: rf_2kb_128b
+    type: register_file
+    area: 0.00060
+    throughput: 1.0
+    delay: 1.2
+    fmax_mhz: 760.0
+    capacity_bits: 2048
+    bandwidth_bits: 128
+    metadata:
+      accesses_per_cycle: 1
+      disclaimer: "Synthetic values for tests only; not TSMC65 characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.000025
+      p_active_w: 0.00011
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid memory access."
+        active_mode: "One generic memory access per cycle."
+        active_access_mix: "Synthetic representative read/write mix."
+
+  - id: rf_2kb_256b
+    type: register_file
+    area: 0.00085
+    throughput: 1.0
+    delay: 1.4
+    fmax_mhz: 700.0
+    capacity_bits: 2048
+    bandwidth_bits: 256
+    metadata:
+      accesses_per_cycle: 1
+      disclaimer: "Synthetic values for tests only; not TSMC65 characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.00004
+      p_active_w: 0.00016
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid memory access."
+        active_mode: "One generic memory access per cycle."
+        active_access_mix: "Synthetic representative read/write mix."
+
+  - id: sram_1kib_64b
+    type: global_buffer
+    area: 0.0040
+    throughput: 1.0
+    delay: 2.0
+    fmax_mhz: 850.0
+    capacity_bits: 8192
+    bandwidth_bits: 64
+    metadata:
+      accesses_per_cycle: 1
+      disclaimer: "Synthetic values for tests only; not TSMC65 characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.00020
+      p_active_w: 0.00080
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid memory access."
+        active_mode: "One generic memory access per cycle."
+        active_access_mix: "Synthetic representative read/write mix."
+
+  - id: sram_2kib_128b
+    type: global_buffer
+    area: 0.0065
+    throughput: 1.0
+    delay: 2.2
+    fmax_mhz: 800.0
+    capacity_bits: 16384
+    bandwidth_bits: 128
+    metadata:
+      accesses_per_cycle: 1
+      disclaimer: "Synthetic values for tests only; not TSMC65 characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.00030
+      p_active_w: 0.00120
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid memory access."
+        active_mode: "One generic memory access per cycle."
+        active_access_mix: "Synthetic representative read/write mix."
+
+  - id: sram_4kib_256b
+    type: global_buffer
+    area: 0.0110
+    throughput: 1.0
+    delay: 2.5
+    fmax_mhz: 760.0
+    capacity_bits: 32768
+    bandwidth_bits: 256
+    metadata:
+      accesses_per_cycle: 1
+      disclaimer: "Synthetic values for tests only; not TSMC65 characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.00050
+      p_active_w: 0.00200
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid memory access."
+        active_mode: "One generic memory access per cycle."
+        active_access_mix: "Synthetic representative read/write mix."
+
+  - id: sram_8kib_512b
+    type: global_buffer
+    area: 0.0200
+    throughput: 1.0
+    delay: 3.0
+    fmax_mhz: 700.0
+    capacity_bits: 65536
+    bandwidth_bits: 512
+    metadata:
+      accesses_per_cycle: 1
+      disclaimer: "Synthetic values for tests only; not TSMC65 characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.00090
+      p_active_w: 0.00350
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid memory access."
+        active_mode: "One generic memory access per cycle."
+        active_access_mix: "Synthetic representative read/write mix."
+
+  - id: sram_16kib_256b
+    type: global_buffer
+    area: 0.0320
+    throughput: 1.0
+    delay: 3.2
+    fmax_mhz: 720.0
+    capacity_bits: 131072
+    bandwidth_bits: 256
+    metadata:
+      accesses_per_cycle: 1
+      disclaimer: "Synthetic values for tests only; not TSMC65 characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.00110
+      p_active_w: 0.00450
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid memory access."
+        active_mode: "One generic memory access per cycle."
+        active_access_mix: "Synthetic representative read/write mix."
+
+  - id: sram_16kib_512b
+    type: global_buffer
+    area: 0.0360
+    throughput: 1.0
+    delay: 3.5
+    fmax_mhz: 680.0
+    capacity_bits: 131072
+    bandwidth_bits: 512
+    metadata:
+      accesses_per_cycle: 1
+      disclaimer: "Synthetic values for tests only; not TSMC65 characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.00130
+      p_active_w: 0.00550
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid memory access."
+        active_mode: "One generic memory access per cycle."
+        active_access_mix: "Synthetic representative read/write mix."
+
+  - id: sram_16kib_1024b
+    type: global_buffer
+    area: 0.0450
+    throughput: 1.0
+    delay: 4.0
+    fmax_mhz: 620.0
+    capacity_bits: 131072
+    bandwidth_bits: 1024
+    metadata:
+      accesses_per_cycle: 1
+      disclaimer: "Synthetic values for tests only; not TSMC65 characterization."
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.00180
+      p_active_w: 0.00800
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+      metadata:
+        idle_mode: "Clock active, no valid memory access."
+        active_mode: "One generic memory access per cycle."
+        active_access_mix: "Synthetic representative read/write mix."

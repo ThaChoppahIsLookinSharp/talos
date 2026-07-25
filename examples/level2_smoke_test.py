@@ -27,7 +27,7 @@ def run_level2_flow(label: str, accelerator) -> None:
     problem = Level2PymooProblem(
         accelerator=accelerator,
         ip_pool=pool,
-        objective_names=["area", "power", "delay", "inv_throughput"],
+        objective_names=["area", "delay", "inv_throughput"],
     )
     problem_out: dict[str, object] = {}
     problem._evaluate(problem.spec.default_genome(), problem_out)
@@ -40,7 +40,6 @@ def run_level2_flow(label: str, accelerator) -> None:
     print(f"default_genome={genome}")
     print(f"valid={result.valid}")
     print(f"area={result.area}")
-    print(f"power={result.power}")
     print(f"delay={result.delay}")
     print(f"throughput={result.throughput}")
     print(f"error_message={result.error_message}")

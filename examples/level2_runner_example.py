@@ -23,7 +23,7 @@ def main() -> None:
     result = run_level2_nsga2(
         accelerator=accelerator,
         ip_pool=ip_pool,
-        objective_names=["area", "power", "delay", "inv_throughput"],
+        objective_names=["area", "delay", "inv_throughput"],
         pop_size=6,
         n_gen=2,
         seed=1,
@@ -39,7 +39,6 @@ def main() -> None:
             f"{solution['solution_index']}: "
             f"valid={solution['valid']} "
             f"area={solution['area']} "
-            f"power={solution['power']} "
             f"delay={solution['delay']} "
             f"throughput={solution['throughput']} "
             f"selected_ips={solution['selected_ips']}"

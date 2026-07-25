@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import contextlib
 import csv
 from dataclasses import dataclass
@@ -200,7 +201,15 @@ def _discretize_genome(genome: list[float]) -> list[int]:
 
 def main() -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    workload = repo_root / "workloads" / "alexnet.onnx"
+    parser = argparse.ArgumentParser(description="Run a small nsga2 package demo.")
+    parser.add_argument(
+        "--workload",
+        type=Path,
+        default=repo_root / "workloads" / "alexnet.onnx",
+        help="Path to the ONNX workload.",
+    )
+    args = parser.parse_args()
+    workload = args.workload.expanduser().resolve()
 
     result = run_nsga2(
         workload_path=str(workload),

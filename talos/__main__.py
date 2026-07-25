@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from talos.constraints import UserConstraints
 from talos.evaluation.objective_adapter import ObjectiveAdapter
 from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
 
@@ -162,6 +163,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=repo_root() / "results",
         help="Directory where GA results will be stored",
     )
+    parser.add_argument("--max-area-mm2", type=float, default=None)
+    parser.add_argument("--max-power-w", type=float, default=None)
+    parser.add_argument("--max-latency-cycles", type=float, default=None)
+    parser.add_argument("--min-frequency-mhz", type=float, default=None)
 
     return parser
 
@@ -175,8 +180,23 @@ def main() -> None:
     if not workload_path.exists():
         raise FileNotFoundError(f"Workload file not found: {workload_path}")
 
+    physical_constraints = (
+        args.max_area_mm2,
+        args.max_power_w,
+        args.min_frequency_mhz,
+    )
+    if any(value is not None for value in physical_constraints):
+        parser.error(
+            "area, power and frequency constraints require Level 2; "
+            "use examples/full_flow_example.py instead."
+        )
+
     if args.ga:
         from talos.ga.pymoo_runner import run_nsga2_pymoo
+
+        constraints = UserConstraints(
+            max_latency_cycles=args.max_latency_cycles,
+        )
 
         print("Running pymoo NSGA-II...")
         print(f"  Workload    : {workload_path}")
@@ -201,6 +221,7 @@ def main() -> None:
             results_dir=str(args.results_dir),
             zigzag_lpf_limit=args.zigzag_lpf_limit,
             zigzag_spatial_mappings=args.zigzag_spatial_mappings,
+            constraints=constraints,
         )
 
         print("\npymoo NSGA-II run finished.")
