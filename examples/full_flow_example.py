@@ -274,6 +274,7 @@ def main() -> int:
         print(f"Summary CSV written to: {summary_path}")
         return 0
 
+    flow_failures: list[str] = []
     candidates = select_level1_candidates(
         level1_genomes=level1_genomes,
         level1_objectives=level1_objectives,
@@ -289,6 +290,7 @@ def main() -> int:
         evaluate_activity=(
             None if activity_evaluator is None else activity_evaluator.evaluate
         ),
+        failures=flow_failures,
     )
     print(
         f"[Level 1] Passing {len(candidates)} architecture(s) to Level 2."
@@ -298,9 +300,10 @@ def main() -> int:
         summary_path = write_summary_csv(results_dir, [])
         print("No Level 1 architecture was compatible with the IP pool.")
         print(f"Summary CSV written to: {summary_path}")
-        return 0
+        return 1 if flow_failures else 0
 
     summary_rows: list[dict[str, Any]] = []
+    level2_failures = len(flow_failures)
     for candidate in candidates:
         arch_index = candidate.source_index
         genome = candidate.raw_genome
@@ -331,7 +334,11 @@ def main() -> int:
                 exhaustive_max_combinations=args.level2_exhaustive_max_combinations,
             )
         except Exception as exc:
-            print(f"  Level 2 failed for this architecture: {exc}")
+            level2_failures += 1
+            print(
+                f"  Level 2 failed for this architecture: {exc}",
+                file=sys.stderr,
+            )
             print()
             continue
 
@@ -364,7 +371,7 @@ def main() -> int:
     if not summary_rows:
         print("No combined Level 1 -> Level 2 rows were produced.")
     print(f"Summary CSV written to: {summary_path}")
-    return 0
+    return 1 if level2_failures else 0
 
 
 def _level1_csv_path(result: Any) -> str:
@@ -385,6 +392,7 @@ def select_level1_candidates(
     abstract_accelerator_from_level1_config: Any,
     constraints: UserConstraints | None = None,
     evaluate_activity: Any | None = None,
+    failures: list[str] | None = None,
 ) -> list[Level1Candidate]:
     candidates: list[Level1Candidate] = []
     seen_discrete_genomes: set[tuple[int, ...]] = set()
@@ -403,6 +411,8 @@ def select_level1_candidates(
             compatibility_error = first_ip_compatibility_error(accelerator, pool)
         except Exception as exc:
             print(f"[Level 1] Skipping architecture {source_index}: {exc}")
+            if failures is not None:
+                failures.append(str(exc))
             continue
 
         if compatibility_error:
@@ -410,6 +420,8 @@ def select_level1_candidates(
                 f"[Level 1] Skipping architecture {source_index}: "
                 f"{compatibility_error}"
             )
+            if failures is not None:
+                failures.append(compatibility_error)
             continue
 
         objective_values = (
@@ -437,6 +449,11 @@ def select_level1_candidates(
                     f"[Level 1] Skipping architecture {source_index}: "
                     f"{activity_result.error_message or 'activity profile is unavailable'}"
                 )
+                if failures is not None:
+                    failures.append(
+                        activity_result.error_message
+                        or "activity profile is unavailable"
+                    )
                 continue
             activity_profile = activity_result.activity_profile
 

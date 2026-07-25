@@ -2,15 +2,20 @@ from __future__ import annotations
 
 from itertools import product
 from pathlib import Path
+from types import SimpleNamespace
+import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 from pymoo.optimize import minimize
 
 from examples.constraint_sweep import build_command, build_parser, sweep_cases
 from examples.full_flow_example import (
+    Level1Candidate,
     SUMMARY_FIELDNAMES,
     build_summary_rows,
+    main as full_flow_main,
     parse_args,
     select_level1_candidates,
 )
@@ -262,6 +267,28 @@ class UserConstraintsTests(unittest.TestCase):
             [[0, 0, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0, 0]],
         )
 
+    def test_level1_selection_records_ip_pool_failures(self) -> None:
+        failures: list[str] = []
+
+        candidates = select_level1_candidates(
+            level1_genomes=[[0] * GENOME_LENGTH],
+            level1_objectives=[[1.0]],
+            level1_objective_names=["area"],
+            max_architectures=1,
+            pool=IPPool(
+                [IPBlock(id="pe", type="pe", area=1, throughput=1, delay=1)]
+            ),
+            decode_genome=decode_genome,
+            gene_bounds=lambda: [
+                (0, len(spec.options) - 1) for spec in GENOME_SPEC
+            ],
+            abstract_accelerator_from_level1_config=abstract_accelerator_from_level1_config,
+            failures=failures,
+        )
+
+        self.assertEqual(candidates, [])
+        self.assertTrue(failures)
+
     def test_level2_solution_rows_are_deduplicated_by_selected_ips(self) -> None:
         component = AbstractComponent(name="pe", type="pe")
         problem = Level2PymooProblem(
@@ -356,6 +383,80 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertEqual(parse_args(["--level1-objectives", "latency"]).level1_objectives, ["latency"])
         self.assertEqual(parse_args(["--level2-objectives", "delay"]).level2_objectives, ["delay"])
         self.assertEqual(parse_args(["--level2-objectives", "energy"]).level2_objectives, ["energy"])
+
+    def test_full_flow_distinguishes_level2_failure_from_no_feasible_designs(self) -> None:
+        config = decode_genome([0] * GENOME_LENGTH)
+        candidate = Level1Candidate(
+            source_index=0,
+            raw_genome=[0.0] * GENOME_LENGTH,
+            objective_values=[1.0],
+            discrete_genome=[0] * GENOME_LENGTH,
+            architecture_config=config,
+            accelerator=abstract_accelerator_from_level1_config(config),
+        )
+        level1_result = SimpleNamespace(
+            X=np.zeros((1, GENOME_LENGTH)),
+            F=np.ones((1, 1)),
+            talos=SimpleNamespace(csv_path=None),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workload = root / "workload.onnx"
+            ip_pool = root / "pool.yaml"
+            workload.touch()
+            ip_pool.touch()
+
+            for level2_outcome, expected_code in (
+                (RuntimeError("characterization failed"), 1),
+                (SimpleNamespace(solutions=[], csv_path=None), 0),
+            ):
+                with self.subTest(expected_code=expected_code):
+                    args = parse_args(
+                        [
+                            "--workload",
+                            str(workload),
+                            "--ip-pool",
+                            str(ip_pool),
+                            "--results-dir",
+                            str(root / f"results_{expected_code}"),
+                            "--level1-objectives",
+                            "area",
+                            "--level2-objectives",
+                            "area",
+                        ]
+                    )
+                    run_patch = (
+                        patch(
+                            "talos.level2.runner.run_level2",
+                            side_effect=level2_outcome,
+                        )
+                        if isinstance(level2_outcome, Exception)
+                        else patch(
+                            "talos.level2.runner.run_level2",
+                            return_value=level2_outcome,
+                        )
+                    )
+                    with (
+                        patch(
+                            "examples.full_flow_example.parse_args",
+                            return_value=args,
+                        ),
+                        patch("talos.ip.IPPool.from_yaml", return_value=object()),
+                        patch(
+                            "talos.ga.pymoo_runner.run_nsga2_pymoo",
+                            return_value=level1_result,
+                        ),
+                        patch(
+                            "talos.evaluation.zigzag_evaluator.ZigZagEvaluator"
+                        ),
+                        patch(
+                            "examples.full_flow_example.select_level1_candidates",
+                            return_value=[candidate],
+                        ),
+                        run_patch,
+                    ):
+                        self.assertEqual(full_flow_main(), expected_code)
 
     def test_constraint_sweep_builds_seven_worker_aware_commands(self) -> None:
         cases = sweep_cases()
