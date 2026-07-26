@@ -231,6 +231,7 @@ def _evaluate_solution(
         power = None
         workload_energy_j = None
         workload_latency_s = None
+        operating_frequency_mhz = None
         delay = float("inf")
         throughput = 0.0
         implementation_fmax_mhz = None
@@ -241,6 +242,7 @@ def _evaluate_solution(
         power = result.power
         workload_energy_j = result.workload_energy_j
         workload_latency_s = result.workload_latency_s
+        operating_frequency_mhz = result.operating_frequency_mhz
         delay = result.delay
         throughput = result.throughput
         implementation_fmax_mhz = result.implementation_fmax_mhz
@@ -264,6 +266,7 @@ def _evaluate_solution(
         "power": power,
         "workload_energy_j": workload_energy_j,
         "workload_latency_s": workload_latency_s,
+        "operating_frequency_mhz": operating_frequency_mhz,
         "dram_accesses": dram_accesses,
         "dram_access_energy_j": dram_access_energy_j,
         "delay": delay,
@@ -291,6 +294,7 @@ def _write_solutions_csv(csv_path: Path, solutions: list[dict[str, Any]]) -> Non
         "power",
         "workload_energy_j",
         "workload_latency_s",
+        "operating_frequency_mhz",
         "dram_accesses",
         "dram_access_energy_j",
         "delay",

@@ -97,6 +97,7 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
         self.assertIsNotNone(solution["power"])
         self.assertIsNotNone(solution["workload_energy_j"])
         self.assertIsNotNone(solution["workload_latency_s"])
+        self.assertEqual(solution["operating_frequency_mhz"], 500.0)
         self.assertEqual(solution["objective_names"], ["area", "energy", "delay"])
         self.assertEqual(
             solution["objective_values"][1],
@@ -197,28 +198,45 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
         )
         self.assertIsNone(area_problem.activity_profile)
 
-    def test_power_preflight_allows_frequency_metadata_but_rejects_pvt_mismatch(self) -> None:
+    def test_power_preflight_rejects_frequency_and_pvt_mismatch(self) -> None:
         accelerator = AbstractAccelerator(
             name="a",
             components=[AbstractComponent(name="pe_array", type="pe")],
         )
 
-        def ip(ip_id: str, model: PowerCharacterization) -> IPBlock:
+        def ip(
+            ip_id: str,
+            model: PowerCharacterization,
+            *,
+            fmax_mhz: float = 600,
+        ) -> IPBlock:
             return IPBlock(
                 id=ip_id,
                 type="pe",
                 area=1,
                 throughput=1,
                 delay=1,
-                fmax_mhz=600,
+                fmax_mhz=fmax_mhz,
                 metadata={"macs_per_cycle": 1},
                 power_model=model,
             )
 
+        with self.assertRaisesRegex(ValueError, "reference frequencies"):
+            Level2PymooProblem(
+                accelerator=accelerator,
+                ip_pool=IPPool(
+                    [ip("a", power_model()), ip("b", power_model(frequency=400))]
+                ),
+                objective_names=["power"],
+                activity_profile=activity_profile(),
+            )
         Level2PymooProblem(
             accelerator=accelerator,
             ip_pool=IPPool(
-                [ip("a", power_model()), ip("b", power_model(frequency=400))]
+                [
+                    ip("too_slow", power_model(), fmax_mhz=400),
+                    ip("fast_enough", power_model()),
+                ]
             ),
             objective_names=["power"],
             activity_profile=activity_profile(),

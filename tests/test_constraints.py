@@ -28,7 +28,7 @@ from examples.objective_sweep import (
 from talos.architecture.abstract_accelerator import AbstractAccelerator, AbstractComponent
 from talos.architecture.genome import GENOME_LENGTH, GENOME_SPEC, decode_genome
 from talos.architecture.level1_importer import abstract_accelerator_from_level1_config
-from talos.constraints import UserConstraints
+from talos.constraints import UserConstraints, estimated_fps
 from talos.evaluation.zigzag_evaluator import EvaluationResult
 from talos.ga.pymoo_runner import TalosPymooProblem, _build_nsga2
 from talos.ip import IPBlock, IPPool
@@ -110,6 +110,16 @@ class UserConstraintsTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "min_frequency_mhz"):
             UserConstraints(min_frequency_mhz=-1)
+
+    def test_estimated_fps_supports_runtime_and_legacy_fmax_inputs(self) -> None:
+        self.assertEqual(estimated_fps(workload_latency_s=2e-3), 500.0)
+        self.assertEqual(
+            estimated_fps(
+                latency_cycles=1000,
+                implementation_fmax_mhz=500,
+            ),
+            500_000.0,
+        )
 
     def test_level1_latency_constraint_is_exported_to_pymoo(self) -> None:
         problem = TalosPymooProblem(
@@ -215,6 +225,7 @@ class UserConstraintsTests(unittest.TestCase):
                     "power": 0.1,
                     "workload_energy_j": 2e-6,
                     "workload_latency_s": 20e-6,
+                    "operating_frequency_mhz": 100.0,
                     "dram_accesses": 1000,
                     "dram_access_energy_j": 1e-6,
                     "constraint_violations": [],
@@ -228,12 +239,14 @@ class UserConstraintsTests(unittest.TestCase):
 
         self.assertIn("constraints_satisfied", SUMMARY_FIELDNAMES)
         self.assertIn("workload_energy_j", SUMMARY_FIELDNAMES)
+        self.assertIn("operating_frequency_mhz", SUMMARY_FIELDNAMES)
         self.assertIn("dram_accesses", SUMMARY_FIELDNAMES)
         self.assertIn("dram_access_energy_j", SUMMARY_FIELDNAMES)
         self.assertNotIn("level1_area", SUMMARY_FIELDNAMES)
         self.assertTrue(rows[0]["constraints_satisfied"])
         self.assertEqual(rows[0]["constraint_violations"], [])
-        self.assertEqual(rows[0]["estimated_fps"], 20_000_000.0)
+        self.assertAlmostEqual(rows[0]["estimated_fps"], 50_000.0)
+        self.assertEqual(rows[0]["operating_frequency_mhz"], 100.0)
         self.assertEqual(rows[0]["level2_power"], 0.1)
         self.assertEqual(rows[0]["workload_energy_j"], 2e-6)
         self.assertEqual(rows[0]["dram_accesses"], 1000)
@@ -270,7 +283,7 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertEqual(rows[0]["level1_latency"], 10.0)
         self.assertEqual(rows[0]["level1_energy"], 20.0)
         self.assertEqual(rows[0]["level1_area_proxy"], 30.0)
-        self.assertEqual(rows[0]["estimated_fps"], 50_000_000.0)
+        self.assertEqual(rows[0]["estimated_fps"], "")
 
     def test_level1_selection_does_not_exhaustively_prefilter_physical_constraints(self) -> None:
         pool = IPPool.from_yaml(SYNTHETIC_POOL_PATH)

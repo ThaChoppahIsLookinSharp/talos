@@ -15,6 +15,7 @@ class Level2EvaluationResult:
     power: float | None
     workload_energy_j: float | None
     workload_latency_s: float | None
+    operating_frequency_mhz: float | None
     delay: float
     throughput: float
     implementation_fmax_mhz: float | None
@@ -71,6 +72,11 @@ class Level2Evaluator:
                 workload_latency_s=(
                     None if power_result is None else power_result.latency_s
                 ),
+                operating_frequency_mhz=(
+                    None
+                    if power_result is None
+                    else power_result.operating_frequency_mhz
+                ),
                 delay=float(delay),
                 throughput=float(throughput),
                 implementation_fmax_mhz=implementation_fmax_mhz,
@@ -84,6 +90,7 @@ class Level2Evaluator:
                 power=None,
                 workload_energy_j=None,
                 workload_latency_s=None,
+                operating_frequency_mhz=None,
                 delay=float("inf"),
                 throughput=0.0,
                 implementation_fmax_mhz=None,

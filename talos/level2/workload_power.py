@@ -22,6 +22,7 @@ class WorkloadPowerResult:
     power_w: float
     energy_j: float
     latency_s: float
+    operating_frequency_mhz: float
 
 
 def evaluate_workload_power(
@@ -70,6 +71,7 @@ def evaluate_workload_power(
         power_w=energy_j / latency_s,
         energy_j=energy_j,
         latency_s=latency_s,
+        operating_frequency_mhz=operating_frequency_mhz,
     )
 
 
@@ -91,7 +93,7 @@ def validate_power_aware_exploration(
                 _positive_metadata(ip.metadata, "accesses_per_cycle", ip.id)
             characterized.append((ip.id, ip.power_model, ip.fmax_mhz))
 
-    _validate_characterizations(characterized)
+    _validate_characterizations(characterized, require_operable=False)
 
     pe_counts = [
         gene.component.count for gene in spec.genes if gene.component.type == "pe"
@@ -243,16 +245,27 @@ def _validate_selected_characterizations(
 
 def _validate_characterizations(
     characterized: list[tuple[str, PowerCharacterization, float | None]],
+    *,
+    require_operable: bool = True,
 ) -> float:
     if not characterized:
         raise ValueError("No characterized IPs were provided.")
+    frequencies = {
+        model.reference_frequency_mhz for _id, model, _fmax in characterized
+    }
+    if len(frequencies) != 1:
+        raise ValueError("Selected IPs have incompatible reference frequencies.")
     for field in ("corner", "voltage_v", "temperature_c"):
         if len({getattr(model, field) for _id, model, _fmax in characterized}) != 1:
             raise ValueError(f"Selected IPs have incompatible power {field} values.")
 
-    fmax_values: list[float] = []
+    operating_frequency_mhz = frequencies.pop()
     for ip_id, _model, fmax_mhz in characterized:
         if fmax_mhz is None:
             raise ValueError(f"Selected IP {ip_id!r} has no fmax_mhz.")
-        fmax_values.append(fmax_mhz)
-    return min(fmax_values)
+        if require_operable and fmax_mhz < operating_frequency_mhz:
+            raise ValueError(
+                f"Selected IP {ip_id!r} fmax_mhz {fmax_mhz} is below power "
+                f"reference frequency {operating_frequency_mhz}."
+            )
+    return operating_frequency_mhz

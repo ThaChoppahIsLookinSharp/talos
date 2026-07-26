@@ -136,7 +136,7 @@ class WorkloadPowerTests(unittest.TestCase):
 
         self.assertEqual(result.power_w, 16 * 3 + 16 * 1)
 
-    def test_frequency_changes_time_but_does_not_rescale_power(self) -> None:
+    def test_reference_frequency_sets_time_and_fmax_only_checks_viability(self) -> None:
         profile = WorkloadActivityProfile(
             layers=(LayerActivity("layer", 1000, 1000, 1, {}),)
         )
@@ -146,9 +146,16 @@ class WorkloadPowerTests(unittest.TestCase):
             profile,
         )
 
-        self.assertAlmostEqual(result.latency_s, 1000 / 160e6)
+        self.assertAlmostEqual(result.latency_s, 1000 / 100e6)
         self.assertAlmostEqual(result.power_w, 1.0)
-        self.assertAlmostEqual(result.energy_j, 1000 / 160e6)
+        self.assertAlmostEqual(result.energy_j, 1000 / 100e6)
+        self.assertEqual(result.operating_frequency_mhz, 100.0)
+
+        with self.assertRaisesRegex(ValueError, "below power reference frequency"):
+            evaluate_workload_power(
+                _implemented(_model(0, 1), fmax_mhz=80.0),
+                profile,
+            )
 
     def test_power_includes_dram_energy_and_is_weighted_by_duration(self) -> None:
         profile = WorkloadActivityProfile(

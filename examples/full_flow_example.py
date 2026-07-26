@@ -41,6 +41,7 @@ SUMMARY_FIELDNAMES = [
     "level2_power",
     "workload_energy_j",
     "workload_latency_s",
+    "operating_frequency_mhz",
     "dram_accesses",
     "dram_access_energy_j",
     "level2_delay",
@@ -570,19 +571,19 @@ def build_summary_rows(
     rows: list[dict[str, Any]] = []
     for solution in level2_solutions:
         implementation_fmax_mhz = solution.get("implementation_fmax_mhz")
+        workload_latency_s = solution.get("workload_latency_s")
         constraint_violations = _combined_constraint_violations(
             constraints=constraints,
             latency_cycles=latency_cycles,
             level2_violations=solution.get("constraint_violations", []),
         )
         constraints_satisfied = bool(solution.get("valid", False)) and not constraint_violations
-        fps = (
-            estimated_fps(
-                latency_cycles=float(latency_cycles),
-                implementation_fmax_mhz=implementation_fmax_mhz,
+        fps = estimated_fps(
+            workload_latency_s=(
+                float(workload_latency_s)
+                if constraints_satisfied and workload_latency_s not in (None, "")
+                else None
             )
-            if constraints_satisfied and latency_cycles != ""
-            else None
         )
         rows.append(
             {
@@ -607,7 +608,13 @@ def build_summary_rows(
                 "level2_area": solution.get("area", ""),
                 "level2_power": solution.get("power", ""),
                 "workload_energy_j": solution.get("workload_energy_j", ""),
-                "workload_latency_s": solution.get("workload_latency_s", ""),
+                "workload_latency_s": (
+                    "" if workload_latency_s is None else workload_latency_s
+                ),
+                "operating_frequency_mhz": solution.get(
+                    "operating_frequency_mhz",
+                    "",
+                ),
                 "dram_accesses": solution.get("dram_accesses", ""),
                 "dram_access_energy_j": solution.get(
                     "dram_access_energy_j",
@@ -676,6 +683,7 @@ def print_first_solution(solution: dict[str, Any]) -> None:
     print(f"    power: {solution.get('power')}")
     print(f"    workload_energy_j: {solution.get('workload_energy_j')}")
     print(f"    workload_latency_s: {solution.get('workload_latency_s')}")
+    print(f"    operating_frequency_mhz: {solution.get('operating_frequency_mhz')}")
     print(f"    dram_accesses: {solution.get('dram_accesses')}")
     print(f"    dram_access_energy_j: {solution.get('dram_access_energy_j')}")
     print(f"    delay: {solution.get('delay')}")

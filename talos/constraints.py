@@ -105,11 +105,17 @@ class UserConstraints:
 
 def estimated_fps(
     *,
-    latency_cycles: float,
-    implementation_fmax_mhz: float | None,
+    workload_latency_s: float | None = None,
+    latency_cycles: float | None = None,
+    implementation_fmax_mhz: float | None = None,
 ) -> float | None:
+    if workload_latency_s is not None:
+        if workload_latency_s <= 0 or not math.isfinite(workload_latency_s):
+            return None
+        return 1.0 / workload_latency_s
     if (
-        implementation_fmax_mhz is None
+        latency_cycles is None
+        or implementation_fmax_mhz is None
         or latency_cycles <= 0
         or not math.isfinite(latency_cycles)
     ):

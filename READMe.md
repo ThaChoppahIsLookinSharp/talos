@@ -111,13 +111,14 @@ For power-aware exploration, TALOS reuses the mapping selected by ZigZag. For ea
 ```text
 P_PE = active_PEs × p_active_w + idle_PEs × p_idle_w
 P_memory = instances × (p_idle_w + utilization × (p_active_w - p_idle_w))
+layer_time = layer_cycles / reference_frequency
 E_inference = E_DRAM + Σ(P_layer × layer_time)
 P_average = E_inference / inference_time
 ```
 
 For example, if ZigZag maps a layer onto 16 of `N` PEs, the PE term is exactly `16 × p_active_w + (N - 16) × p_idle_w`. Register-file and global-buffer utilization comes from the accesses in the ZigZag mapping. DRAM remains external to Level 2 area and contributes the per-access energy reported by ZigZag.
 
-Memory accesses are normalized from the abstract Level 1 port width to the selected IP width. Workload time and FPS use the selected implementation's `fmax`. Power values are used exactly as characterized, without frequency scaling.
+Memory accesses are normalized from the abstract Level 1 port width to the selected IP width. All selected IPs operate at their common `reference_frequency_mhz`, so workload time, energy, and FPS use the same characterized point. Power values are used exactly as characterized, without frequency scaling. Every selected IP must have `fmax_mhz >= reference_frequency_mhz`; `fmax_mhz` is otherwise only a capability metric and feasibility filter.
 
 The `energy` and `power` objectives use the same model: `energy` minimizes joules per inference, while `power` minimizes time-weighted average watts. Level 2 still evaluates characterized IP area, implementation `fmax`, delay, throughput, and all configured constraints independently of these objectives.
 
@@ -128,7 +129,7 @@ The `energy` and `power` objectives use the same model: `energy` minimizes joule
 | `--max-latency-cycles` | Level 1 | workload latency must not exceed the limit |
 | `--max-area-mm2` | Level 2 | physical IP area must not exceed the limit |
 | `--max-power-w` | Level 2 | average workload power must not exceed the limit |
-| `--min-frequency-mhz` | Level 2 | implementation `fmax` must meet the minimum |
+| `--min-frequency-mhz` | Level 2 | implementation `fmax` capability must meet the minimum |
 
 Area, power, and frequency constraints require the full Level 1 → Level 2 flow. `python -m talos` only accepts the Level 1 latency constraint.
 
@@ -308,7 +309,7 @@ ips:
 
 Memory IPs additionally use `capacity_bits`, `bandwidth_bits`, and `metadata.accesses_per_cycle`.
 
-`p_idle_w` and `p_active_w` are per-instance power values used directly by the estimator. `reference_frequency_mhz` records their characterization point but does not rescale them. `voltage_v` records that characterization voltage and is checked for compatibility; it is not added or multiplied into the energy calculation. The included values are synthetic, but real values can be obtained from two Genus power scenarios: clocked idle and representative active operation.
+`p_idle_w` and `p_active_w` are per-instance power values used directly by the estimator. `reference_frequency_mhz` is both their characterization point and the operating frequency used to convert workload cycles into seconds. All compatible candidates in a power-aware search must use the same reference frequency and must meet it with their `fmax_mhz`; no frequency scaling is applied. `voltage_v` records the characterization voltage and is checked for compatibility; it is not added or multiplied into the energy calculation. The included values are synthetic, but real values can be obtained from two Genus power scenarios: clocked idle and representative active operation.
 
 Energy or power exploration requires every compatible candidate IP to provide:
 
