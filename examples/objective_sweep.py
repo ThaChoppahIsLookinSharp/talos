@@ -78,7 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="exhaustive",
     )
     parser.add_argument("--level2-exhaustive-max-combinations", type=int, default=100_000)
-    parser.add_argument("--max-architectures", type=int, default=12)
+    parser.add_argument("--max-architectures", type=int, default=3)
     parser.add_argument("--max-area-mm2", type=float, default=6.0)
     parser.add_argument("--max-power-w", type=float, default=1.2)
     parser.add_argument("--min-frequency-mhz", type=float, default=600.0)

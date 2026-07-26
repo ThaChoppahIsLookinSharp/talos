@@ -77,6 +77,25 @@ def iter_level1_objectives(result: Any) -> list[list[float]]:
     return _float_rows(getattr(result, "F", None))
 
 
+def iter_level1_candidates(result: Any) -> tuple[list[list[float]], list[list[float]]]:
+    genomes = iter_level1_genomes(result)
+    objectives = iter_level1_objectives(result)
+    population = getattr(result, "pop", None)
+    if population is None:
+        return genomes, objectives
+
+    for genome, values, feasible in zip(
+        _float_rows(population.get("X")),
+        _float_rows(population.get("F")),
+        _float_rows(population.get("feasible")),
+        strict=True,
+    ):
+        if all(bool(value) for value in feasible):
+            genomes.append(genome)
+            objectives.append(values)
+    return genomes, objectives
+
+
 def _float_rows(raw: Any) -> list[list[float]]:
     if raw is None:
         return []
@@ -263,11 +282,13 @@ def main() -> int:
         )
         return 2
 
-    level1_genomes = iter_level1_genomes(level1_result)
-    level1_objectives = iter_level1_objectives(level1_result)
+    level1_genomes, level1_objectives = iter_level1_candidates(level1_result)
     level1_csv_path = _level1_csv_path(level1_result)
 
-    print(f"[Level 1] Found {len(level1_genomes)} candidate architecture(s).")
+    print(
+        f"[Level 1] Considering {len(level1_genomes)} Pareto/final-population "
+        "candidate row(s)."
+    )
     if level1_csv_path:
         print(f"[Level 1] CSV: {level1_csv_path}")
     if not level1_genomes:

@@ -15,6 +15,7 @@ from examples.full_flow_example import (
     Level1Candidate,
     SUMMARY_FIELDNAMES,
     build_summary_rows,
+    iter_level1_candidates,
     main as full_flow_main,
     parse_args,
     select_level1_candidates,
@@ -84,6 +85,25 @@ def implemented_ip(
 
 
 class UserConstraintsTests(unittest.TestCase):
+    def test_full_flow_can_fill_pareto_set_from_feasible_final_population(self) -> None:
+        population = SimpleNamespace(
+            get=lambda name: {
+                "X": np.array([[0.0] * GENOME_LENGTH, [1.0] * GENOME_LENGTH]),
+                "F": np.array([[2.0], [3.0]]),
+                "feasible": np.array([[True], [False]]),
+            }[name]
+        )
+        genomes, objectives = iter_level1_candidates(
+            SimpleNamespace(
+                X=np.array([[2.0] * GENOME_LENGTH]),
+                F=np.array([[1.0]]),
+                pop=population,
+            )
+        )
+
+        self.assertEqual(genomes, [[2.0] * GENOME_LENGTH, [0.0] * GENOME_LENGTH])
+        self.assertEqual(objectives, [[1.0], [2.0]])
+
     def test_user_constraints_validate_positive_values(self) -> None:
         with self.assertRaisesRegex(ValueError, "max_area_mm2"):
             UserConstraints(max_area_mm2=0)
@@ -524,6 +544,7 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertIn("--workers", command)
         self.assertEqual(command[command.index("--workers") + 1], "8")
         self.assertEqual(args.level2_strategy, "exhaustive")
+        self.assertEqual(args.max_architectures, 3)
         self.assertEqual(command[command.index("--min-frequency-mhz") + 1], "600.0")
 
         args = build_objective_sweep_parser().parse_args(["--no-constraints"])

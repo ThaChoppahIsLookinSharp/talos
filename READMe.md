@@ -27,7 +27,7 @@ flowchart LR
     A[ONNX workload] --> B[Level 1 genome]
     B --> C[ZigZag evaluation]
     C --> D[pymoo NSGA-II]
-    D --> E[Pareto abstract architectures]
+    D --> E[Pareto plus feasible final-population architectures]
     E --> F[Abstract component graph]
     G[Characterized IP pool YAML] --> H[Level 2 genome]
     F --> H
@@ -80,6 +80,8 @@ The Level 2 genome has one dynamic gene per abstract component. Each gene select
 - minimum bandwidth.
 
 The exhaustive strategy evaluates every compatible combination up to `--level2-exhaustive-max-combinations`. NSGA-II is preferable when the Cartesian product is large.
+
+The full flow sends Pareto solutions first and can fill `--max-architectures` with distinct feasible individuals from the final Level 1 population. The objective sweep starts with three architectures per objective case.
 
 ## Objectives and constraints
 
