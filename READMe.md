@@ -118,7 +118,7 @@ P_average = E_inference / inference_time
 
 For example, if ZigZag maps a layer onto 16 of `N` PEs, the PE term is exactly `16 × p_active_w + (N - 16) × p_idle_w`. Register-file and global-buffer utilization comes from the accesses in the ZigZag mapping. DRAM remains external to Level 2 area and contributes the per-access energy reported by ZigZag.
 
-Memory accesses are normalized from the abstract Level 1 port width to the selected IP width. All selected IPs operate at their common `reference_frequency_mhz`, so workload time, energy, and FPS use the same characterized point. Power values are used exactly as characterized, without frequency scaling. Every selected IP must have `fmax_mhz >= reference_frequency_mhz`; `fmax_mhz` is otherwise only a capability metric and feasibility filter.
+Memory accesses are normalized from the abstract Level 1 port width to the selected IP width. All selected IPs operate at their common `reference_frequency_mhz`, so workload time, energy, and inferences per second use the same characterized point. Power values are used exactly as characterized, without frequency scaling. Every selected IP must have `fmax_mhz >= reference_frequency_mhz`; `fmax_mhz` is otherwise only a capability metric and feasibility filter.
 
 The `energy` and `power` objectives use the same model: `energy` minimizes joules per inference, while `power` minimizes time-weighted average watts. Level 2 still evaluates characterized IP area, implementation `fmax`, delay, throughput, and all configured constraints independently of these objectives.
 
@@ -344,7 +344,7 @@ The combined summary contains columns for:
 - estimated frames per second;
 - paths to the detailed Level 1 and Level 2 CSVs.
 
-Power, energy, workload latency, and FPS fields are populated when the selected objectives or constraints require the corresponding workload evaluation.
+Power, energy, workload latency, and `inferences_per_second` are populated when the selected objectives or constraints require the corresponding workload evaluation.
 
 Generated `results/`, `outputs/`, and `.talos_zigzag/` directories are ignored by Git.
 

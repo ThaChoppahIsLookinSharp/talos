@@ -28,7 +28,11 @@ from examples.objective_sweep import (
 from talos.architecture.abstract_accelerator import AbstractAccelerator, AbstractComponent
 from talos.architecture.genome import GENOME_LENGTH, GENOME_SPEC, decode_genome
 from talos.architecture.level1_importer import abstract_accelerator_from_level1_config
-from talos.constraints import UserConstraints, estimated_fps
+from talos.constraints import (
+    UserConstraints,
+    estimated_fps,
+    estimated_inferences_per_second,
+)
 from talos.evaluation.zigzag_evaluator import EvaluationResult
 from talos.ga.pymoo_runner import TalosPymooProblem, _build_nsga2
 from talos.ip import IPBlock, IPPool
@@ -112,6 +116,10 @@ class UserConstraintsTests(unittest.TestCase):
             UserConstraints(min_frequency_mhz=-1)
 
     def test_estimated_fps_supports_runtime_and_legacy_fmax_inputs(self) -> None:
+        self.assertEqual(
+            estimated_inferences_per_second(workload_latency_s=2e-3),
+            500.0,
+        )
         self.assertEqual(estimated_fps(workload_latency_s=2e-3), 500.0)
         self.assertEqual(
             estimated_fps(
@@ -206,7 +214,7 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertEqual(out["F"], [1.0])
         self.assertEqual(out["G"], [0.5, 100.0])
 
-    def test_full_flow_summary_reports_constraints_and_estimated_fps(self) -> None:
+    def test_full_flow_summary_reports_constraints_and_inference_rate(self) -> None:
         rows = build_summary_rows(
             architecture_index=0,
             level1_raw_genome=[0.0] * GENOME_LENGTH,
@@ -245,7 +253,7 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertNotIn("level1_area", SUMMARY_FIELDNAMES)
         self.assertTrue(rows[0]["constraints_satisfied"])
         self.assertEqual(rows[0]["constraint_violations"], [])
-        self.assertAlmostEqual(rows[0]["estimated_fps"], 50_000.0)
+        self.assertAlmostEqual(rows[0]["inferences_per_second"], 50_000.0)
         self.assertEqual(rows[0]["operating_frequency_mhz"], 100.0)
         self.assertEqual(rows[0]["level2_power"], 0.1)
         self.assertEqual(rows[0]["workload_energy_j"], 2e-6)
@@ -283,7 +291,7 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertEqual(rows[0]["level1_latency"], 10.0)
         self.assertEqual(rows[0]["level1_energy"], 20.0)
         self.assertEqual(rows[0]["level1_area_proxy"], 30.0)
-        self.assertEqual(rows[0]["estimated_fps"], "")
+        self.assertEqual(rows[0]["inferences_per_second"], "")
 
     def test_level1_selection_does_not_exhaustively_prefilter_physical_constraints(self) -> None:
         pool = IPPool.from_yaml(SYNTHETIC_POOL_PATH)

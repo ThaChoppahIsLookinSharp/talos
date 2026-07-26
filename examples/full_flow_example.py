@@ -12,7 +12,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from talos.constraints import UserConstraints, estimated_fps
+from talos.constraints import UserConstraints, estimated_inferences_per_second
 from talos.evaluation.workload_activity import WorkloadActivityProfile
 from talos.evaluation.zigzag_evaluator import EvaluationResult
 
@@ -50,7 +50,7 @@ SUMMARY_FIELDNAMES = [
     "level2_valid",
     "constraints_satisfied",
     "constraint_violations",
-    "estimated_fps",
+    "inferences_per_second",
     "level2_strategy",
     "level2_explored_combinations",
     "level1_csv_path",
@@ -578,7 +578,7 @@ def build_summary_rows(
             level2_violations=solution.get("constraint_violations", []),
         )
         constraints_satisfied = bool(solution.get("valid", False)) and not constraint_violations
-        fps = estimated_fps(
+        inference_rate = estimated_inferences_per_second(
             workload_latency_s=(
                 float(workload_latency_s)
                 if constraints_satisfied and workload_latency_s not in (None, "")
@@ -626,7 +626,9 @@ def build_summary_rows(
                 "level2_valid": solution.get("valid", ""),
                 "constraints_satisfied": constraints_satisfied,
                 "constraint_violations": constraint_violations,
-                "estimated_fps": "" if fps is None else fps,
+                "inferences_per_second": (
+                    "" if inference_rate is None else inference_rate
+                ),
                 "level2_strategy": solution.get("strategy", ""),
                 "level2_explored_combinations": solution.get(
                     "explored_combinations",
