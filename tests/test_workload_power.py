@@ -63,6 +63,50 @@ def _implemented(
     return ImplementedAccelerator(components=components)
 
 
+def _composite_implemented() -> ImplementedAccelerator:
+    pe_id = "pe_tile"
+    rf_ids = {name: f"{name}_ip" for name in ("rf_i1", "rf_i2", "rf_o")}
+    components = [
+        ImplementedComponent(
+            abstract_component=AbstractComponent(name="pe_array", type="pe", count=2),
+            ip=IPBlock(
+                id=pe_id,
+                type="pe",
+                area=1,
+                throughput=1,
+                delay=1,
+                fmax_mhz=100,
+                included_rfs=rf_ids,
+                included_rf_power_mode="parent_idle_baseline",
+                power_model=_model(10, 14),
+            ),
+        )
+    ]
+    for name in ("rf_i1", "rf_i2", "rf_o", "gb"):
+        covered = name in rf_ids
+        components.append(
+            ImplementedComponent(
+                abstract_component=AbstractComponent(
+                    name=name,
+                    type="register_file" if covered else "global_buffer",
+                    count=2 if covered else 1,
+                ),
+                ip=IPBlock(
+                    id=rf_ids.get(name, "gb_ip"),
+                    type="register_file" if covered else "global_buffer",
+                    area=1,
+                    throughput=1,
+                    delay=1,
+                    fmax_mhz=100,
+                    metadata={"accesses_per_cycle": 1},
+                    power_model=_model(1, 3) if covered else _model(0, 0),
+                ),
+                covered_by_pe_id=pe_id if covered else None,
+            )
+        )
+    return ImplementedAccelerator(components=components)
+
+
 class UtilizationTests(unittest.TestCase):
     def test_memory_utilization_cases(self) -> None:
         common = {
@@ -124,6 +168,34 @@ class UtilizationTests(unittest.TestCase):
 
 
 class WorkloadPowerTests(unittest.TestCase):
+    def test_composite_pe_does_not_count_covered_rf_idle_power_twice(self) -> None:
+        result = evaluate_workload_power(
+            _composite_implemented(),
+            WorkloadActivityProfile(
+                layers=(LayerActivity("layer", 100, 1, 1, {}),)
+            ),
+        )
+
+        self.assertEqual(result.power_w, 24)
+
+    def test_composite_pe_adds_only_covered_rf_access_increment(self) -> None:
+        result = evaluate_workload_power(
+            _composite_implemented(),
+            WorkloadActivityProfile(
+                layers=(
+                    LayerActivity(
+                        "layer",
+                        100,
+                        1,
+                        1,
+                        {"rf_i1": 100},
+                    ),
+                )
+            ),
+        )
+
+        self.assertEqual(result.power_w, 26)
+
     def test_pe_power_uses_active_and_idle_counts_from_mapping(self) -> None:
         profile = WorkloadActivityProfile(
             layers=(LayerActivity("layer", 1000, 16000, 16, {}),)

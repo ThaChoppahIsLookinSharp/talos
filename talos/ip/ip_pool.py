@@ -10,11 +10,46 @@ from talos.architecture.abstract_accelerator import AbstractComponent
 from talos.ip.ip_characterization import IPBlock, PowerCharacterization
 
 
+INCLUDED_RF_ROLES = frozenset({"rf_i1", "rf_i2", "rf_o"})
+
+
 class IPPool:
     def __init__(self, ip_blocks: list[IPBlock]) -> None:
         if not ip_blocks:
             raise ValueError("IPPool requires at least one IPBlock.")
         self.ip_blocks = list(ip_blocks)
+        self._validate_composition()
+
+    def _validate_composition(self) -> None:
+        by_id = {ip.id: ip for ip in self.ip_blocks}
+        if len(by_id) != len(self.ip_blocks):
+            raise ValueError("IPPool IPBlock ids must be unique.")
+
+        for ip in self.ip_blocks:
+            if not ip.included_rfs:
+                continue
+            if ip.type != "pe":
+                raise ValueError(
+                    f"IPBlock {ip.id!r} declares included_rfs but is not a PE."
+                )
+            unknown_roles = sorted(set(ip.included_rfs) - INCLUDED_RF_ROLES)
+            if unknown_roles:
+                raise ValueError(
+                    f"IPBlock {ip.id!r} has unknown included RF role(s): "
+                    f"{', '.join(unknown_roles)}."
+                )
+            for role, referenced_id in ip.included_rfs.items():
+                referenced = by_id.get(referenced_id)
+                if referenced is None:
+                    raise ValueError(
+                        f"IPBlock {ip.id!r} included RF role {role!r} references "
+                        f"unknown IPBlock {referenced_id!r}."
+                    )
+                if referenced.type != "register_file":
+                    raise ValueError(
+                        f"IPBlock {ip.id!r} included RF role {role!r} references "
+                        f"{referenced_id!r}, which is not a register_file."
+                    )
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "IPPool":

@@ -110,8 +110,133 @@ ips:
         with self.assertRaisesRegex(ValueError, "No compatible IPBlock found"):
             pool.find_compatible(component)
 
+    def test_ip_pool_loads_and_validates_included_rfs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "composite.yaml"
+            path.write_text(
+                """
+ips:
+  - id: pe_tile
+    type: pe
+    area: 2
+    throughput: 1
+    delay: 1
+    included_rfs:
+      rf_i1: rf
+    included_rf_power_mode: parent_idle_baseline
+  - id: rf
+    type: register_file
+    area: 1
+    throughput: 1
+    delay: 1
+    capacity_bits: 512
+    bandwidth_bits: 64
+""".strip(),
+                encoding="utf-8",
+            )
+            tile = IPPool.from_yaml(path).by_type("pe")[0]
+
+        self.assertEqual(tile.included_rfs, {"rf_i1": "rf"})
+        self.assertEqual(tile.included_rf_power_mode, "parent_idle_baseline")
+
+        with self.assertRaisesRegex(ValueError, "requires included_rf_power_mode"):
+            IPBlock(
+                id="ambiguous_tile",
+                type="pe",
+                area=1,
+                throughput=1,
+                delay=1,
+                included_rfs={"rf_i1": "rf"},
+            )
+
+        rf = IPBlock(
+            id="rf",
+            type="register_file",
+            area=1,
+            throughput=1,
+            delay=1,
+        )
+        with self.assertRaisesRegex(ValueError, "unique"):
+            IPPool([rf, rf])
+        with self.assertRaisesRegex(ValueError, "unknown included RF role"):
+            IPPool(
+                [
+                    rf,
+                    IPBlock(
+                        id="pe",
+                        type="pe",
+                        area=1,
+                        throughput=1,
+                        delay=1,
+                        included_rfs={"rf_bad": "rf"},
+                        included_rf_power_mode="parent_idle_baseline",
+                    ),
+                ]
+            )
+        with self.assertRaisesRegex(ValueError, "unknown IPBlock"):
+            IPPool(
+                [
+                    IPBlock(
+                        id="pe",
+                        type="pe",
+                        area=1,
+                        throughput=1,
+                        delay=1,
+                        included_rfs={"rf_i1": "missing"},
+                        included_rf_power_mode="parent_idle_baseline",
+                    )
+                ]
+            )
+        with self.assertRaisesRegex(ValueError, "not a PE"):
+            IPPool(
+                [
+                    rf,
+                    IPBlock(
+                        id="rf_container",
+                        type="register_file",
+                        area=1,
+                        throughput=1,
+                        delay=1,
+                        included_rfs={"rf_i1": "rf"},
+                        included_rf_power_mode="parent_idle_baseline",
+                    ),
+                ]
+            )
+        global_buffer = IPBlock(
+            id="gb",
+            type="global_buffer",
+            area=1,
+            throughput=1,
+            delay=1,
+        )
+        with self.assertRaisesRegex(ValueError, "not a register_file"):
+            IPPool(
+                [
+                    global_buffer,
+                    IPBlock(
+                        id="pe",
+                        type="pe",
+                        area=1,
+                        throughput=1,
+                        delay=1,
+                        included_rfs={"rf_i1": "gb"},
+                        included_rf_power_mode="parent_idle_baseline",
+                    ),
+                ]
+            )
+
 
 class AbstractAcceleratorImporterTests(unittest.TestCase):
+    def test_abstract_accelerator_rejects_duplicate_component_names(self) -> None:
+        with self.assertRaisesRegex(ValueError, "names must be unique"):
+            AbstractAccelerator(
+                name="duplicate",
+                components=[
+                    AbstractComponent(name="rf_i1", type="register_file"),
+                    AbstractComponent(name="rf_i1", type="register_file"),
+                ],
+            )
+
     def test_level1_importer_builds_expected_components(self) -> None:
         config = decode_genome(default_genome())
         accelerator = abstract_accelerator_from_level1_config(config)
@@ -204,8 +329,159 @@ class Level2GenomeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unable to build Level2GenomeSpec"):
             Level2GenomeSpec.from_accelerator_and_pool(accelerator, pool)
 
+    def test_composite_pe_filters_and_canonicalizes_included_rf_genes(self) -> None:
+        def block(
+            ip_id: str,
+            ip_type: str,
+            *,
+            capacity: int | None = None,
+            bandwidth: int | None = None,
+            included_rfs: dict[str, str] | None = None,
+        ) -> IPBlock:
+            return IPBlock(
+                id=ip_id,
+                type=ip_type,
+                area=1,
+                throughput=1,
+                delay=1,
+                capacity_bits=capacity,
+                bandwidth_bits=bandwidth,
+                included_rfs=included_rfs or {},
+                included_rf_power_mode=(
+                    "parent_idle_baseline" if included_rfs else None
+                ),
+            )
+
+        pool = IPPool(
+            [
+                block("pe_plain", "pe"),
+                block("pe_tile", "pe", included_rfs={"rf_i1": "rf_large"}),
+                block("pe_too_small", "pe", included_rfs={"rf_i1": "rf_tiny"}),
+                block("pe_too_narrow", "pe", included_rfs={"rf_i1": "rf_narrow"}),
+                block("rf_tiny", "register_file", capacity=256, bandwidth=64),
+                block("rf_narrow", "register_file", capacity=512, bandwidth=32),
+                block("rf_small", "register_file", capacity=512, bandwidth=64),
+                block("rf_large", "register_file", capacity=1024, bandwidth=128),
+            ]
+        )
+        accelerator = AbstractAccelerator(
+            name="composite",
+            components=[
+                AbstractComponent(name="pe_array", type="pe", count=2),
+                AbstractComponent(
+                    name="rf_i1",
+                    type="register_file",
+                    count=2,
+                    required_capacity_bits=512,
+                    required_bandwidth_bits=64,
+                ),
+            ],
+        )
+
+        spec = Level2GenomeSpec.from_accelerator_and_pool(accelerator, pool)
+
+        self.assertEqual(
+            [candidate.id for candidate in spec.genes[0].candidates],
+            ["pe_plain", "pe_tile"],
+        )
+        self.assertEqual(spec.canonicalize([1, 0]), [1, 1])
+        self.assertEqual(set(spec.iter_genomes()), {(0, 0), (0, 1), (1, 1)})
+        self.assertEqual(spec.genome_count(), 3)
+        implemented = spec.decode([1, 0])
+        self.assertEqual(implemented.components[1].ip.id, "rf_large")
+        self.assertEqual(implemented.components[1].covered_by_pe_id, "pe_tile")
+
+        count_mismatch = AbstractAccelerator(
+            name="count_mismatch",
+            components=[
+                accelerator.components[0],
+                AbstractComponent(
+                    name="rf_i1",
+                    type="register_file",
+                    count=1,
+                    required_capacity_bits=512,
+                    required_bandwidth_bits=64,
+                ),
+            ],
+        )
+        mismatch_spec = Level2GenomeSpec.from_accelerator_and_pool(
+            count_mismatch, pool
+        )
+        self.assertEqual(
+            [candidate.id for candidate in mismatch_spec.genes[0].candidates],
+            ["pe_plain"],
+        )
+
+        with self.assertRaisesRegex(ValueError, "exactly one PE component"):
+            Level2GenomeSpec.from_accelerator_and_pool(
+                AbstractAccelerator(
+                    name="multiple_pe_arrays",
+                    components=[
+                        accelerator.components[0],
+                        AbstractComponent(name="pe_aux", type="pe", count=2),
+                        accelerator.components[1],
+                    ],
+                ),
+                pool,
+            )
+
 
 class Level2EvaluatorTests(unittest.TestCase):
+    def test_composite_pe_counts_inclusive_ppa_once_and_validates_coverage(self) -> None:
+        pe = ImplementedComponent(
+            abstract_component=AbstractComponent(name="pe_array", type="pe", count=2),
+            ip=IPBlock(
+                id="tile",
+                type="pe",
+                area=3,
+                throughput=4,
+                delay=5,
+                fmax_mhz=600,
+                included_rfs={"rf_i1": "rf"},
+                included_rf_power_mode="parent_idle_baseline",
+            ),
+        )
+        rf = ImplementedComponent(
+            abstract_component=AbstractComponent(
+                name="rf_i1",
+                type="register_file",
+                count=2,
+            ),
+            ip=IPBlock(
+                id="rf",
+                type="register_file",
+                area=100,
+                throughput=1,
+                delay=100,
+                fmax_mhz=100,
+            ),
+            covered_by_pe_id="tile",
+        )
+
+        result = Level2Evaluator().evaluate(
+            ImplementedAccelerator(components=[pe, rf])
+        )
+
+        self.assertTrue(result.valid)
+        self.assertEqual(result.area, 6)
+        self.assertEqual(result.delay, 5)
+        self.assertEqual(result.throughput, 4)
+        self.assertEqual(result.implementation_fmax_mhz, 600)
+
+        invalid = Level2Evaluator().evaluate(
+            ImplementedAccelerator(
+                components=[
+                    pe,
+                    ImplementedComponent(
+                        abstract_component=rf.abstract_component,
+                        ip=rf.ip,
+                    ),
+                ]
+            )
+        )
+        self.assertFalse(invalid.valid)
+        self.assertIn("does not validly cover", invalid.error_message or "")
+
     def test_level2_evaluator_computes_simple_ppa(self) -> None:
         pool = IPPool.from_yaml(IP_POOL_PATH)
         accelerator = abstract_accelerator_from_level1_config(decode_genome(default_genome()))

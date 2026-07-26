@@ -40,9 +40,14 @@ def run_level2_nsga2(
     activity_profile: WorkloadActivityProfile | None = None,
 ) -> Level2NSGA2RunResult:
     try:
+        import numpy as np
         from pymoo.algorithms.moo.nsga2 import NSGA2
         from pymoo.config import Config
+        from pymoo.core.repair import Repair
         from pymoo.optimize import minimize
+        from pymoo.operators.crossover.sbx import SBX
+        from pymoo.operators.mutation.pm import PM
+        from pymoo.operators.sampling.rnd import IntegerRandomSampling
     except ModuleNotFoundError as exc:
         raise ImportError(
             "pymoo is required to run Level 2 NSGA-II. Install it with `pip install pymoo`."
@@ -58,7 +63,22 @@ def run_level2_nsga2(
         constraints=constraints,
         activity_profile=activity_profile,
     )
-    algorithm = NSGA2(pop_size=pop_size)
+    class CanonicalRepair(Repair):
+        def _do(self, _problem: Any, x: Any, **_kwargs: Any) -> Any:
+            return np.asarray(
+                [problem.spec.canonicalize(row) for row in x],
+                dtype=int,
+            )
+
+    repair = CanonicalRepair()
+    algorithm = NSGA2(
+        pop_size=pop_size,
+        sampling=IntegerRandomSampling(),
+        crossover=SBX(prob=0.9, eta=15, vtype=float, repair=repair),
+        mutation=PM(eta=20, vtype=float, repair=repair),
+        repair=repair,
+        eliminate_duplicates=True,
+    )
 
     with warnings.catch_warnings():
         warnings.filterwarnings(
@@ -208,6 +228,7 @@ def _evaluate_solution(
     seed: int,
 ) -> dict[str, Any]:
     selected_ips: dict[str, str] = {}
+    covered_by_pe: dict[str, str] = {}
     error_message = None
     profile = problem.activity_profile
     dram_accesses = None if profile is None else profile.total_dram_accesses
@@ -216,11 +237,17 @@ def _evaluate_solution(
     )
 
     try:
+        genome = problem.spec.canonicalize(genome)
         implemented = problem.spec.decode(genome)
         result = problem.evaluator.evaluate(implemented)
         selected_ips = {
             component.abstract_component.name: component.ip.id
             for component in implemented.components
+        }
+        covered_by_pe = {
+            component.abstract_component.name: component.covered_by_pe_id
+            for component in implemented.components
+            if component.covered_by_pe_id is not None
         }
     except Exception as exc:
         result = None
@@ -262,6 +289,7 @@ def _evaluate_solution(
         "solution_index": solution_index,
         "genome": genome,
         "selected_ips": selected_ips,
+        "covered_by_pe": covered_by_pe,
         "area": area,
         "power": power,
         "workload_energy_j": workload_energy_j,
@@ -290,6 +318,7 @@ def _write_solutions_csv(csv_path: Path, solutions: list[dict[str, Any]]) -> Non
         "solution_index",
         "genome",
         "selected_ips",
+        "covered_by_pe",
         "area",
         "power",
         "workload_energy_j",

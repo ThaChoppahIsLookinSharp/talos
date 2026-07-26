@@ -5,6 +5,7 @@ import contextlib
 from dataclasses import dataclass
 import io
 import logging
+from math import prod
 import os
 from pathlib import Path
 import pickle
@@ -338,9 +339,14 @@ class ZigZagEvaluator:
         Replace this later with your own Level-2 IP characterization model.
         """
         mac_count = cfg.pe_x * cfg.pe_y
+        gb_count = prod(
+            size
+            for dimension, size in (("D1", cfg.pe_x), ("D2", cfg.pe_y))
+            if dimension not in cfg.gb_served_dims
+        )
 
         mac_area = mac_count * 1.0
-        rf_area = mac_count * cfg.rf_size_bits * 0.001
-        gb_area = cfg.gb_size_bits * 0.0005
+        rf_area = 3 * mac_count * cfg.rf_size_bits * 0.001
+        gb_area = gb_count * cfg.gb_size_bits * 0.0005
 
         return float(mac_area + rf_area + gb_area)

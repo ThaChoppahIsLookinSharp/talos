@@ -73,15 +73,25 @@ A decoded Level 1 architecture becomes:
 - `rf_i1`, `rf_i2`, and `rf_o`, replicated per PE;
 - one or more `gb` instances, with replication determined by the array dimensions not served by the global buffer.
 
-The Level 2 genome has one dynamic gene per abstract component. Each gene selects an IP from the pool after filtering by:
+The Level 2 genome has one gene per abstract component. Each gene selects an IP from the pool after filtering by:
 
 - component type;
 - minimum capacity;
 - minimum bandwidth.
 
+PE entries may declare that their characterized area and timing already include
+one or more RF roles. Selecting one of these composite PEs fixes the covered RF
+genes to the referenced RF IPs: the RFs remain visible for capacity, bandwidth,
+ZigZag accesses, and power, but their area, delay, throughput, and `fmax` are not
+counted a second time.
+
 The exhaustive strategy evaluates every compatible combination up to `--level2-exhaustive-max-combinations`. NSGA-II is preferable when the Cartesian product is large.
 
 The full flow sends Pareto solutions first and can fill `--max-architectures` with distinct feasible individuals from the final Level 1 population. The objective sweep starts with three architectures per objective case.
+When physical constraints are present, it also screens each Level 1 candidate
+for at least one feasible Level 2 combination before consuming an architecture
+slot. Spaces above `--level2-exhaustive-max-combinations` are left to the
+selected Level 2 strategy instead of being rejected by the prefilter.
 
 ## Objectives and constraints
 
@@ -95,6 +105,11 @@ The full flow sends Pareto solutions first and can fill `--max-architectures` wi
 | `edp` | energy × latency |
 | `eap` | energy × area |
 | `alp` | area × latency |
+
+The analytical area proxy counts the PE array, all three per-PE RF families,
+and the actual number of global-buffer replicas implied by
+`gb_served_dims`. It is useful for Level 1 ranking, but physical constraints
+still use characterized Level 2 area.
 
 ### Level 2 objectives
 
@@ -119,6 +134,20 @@ P_average = E_inference / inference_time
 For example, if ZigZag maps a layer onto 16 of `N` PEs, the PE term is exactly `16 × p_active_w + (N - 16) × p_idle_w`. Register-file and global-buffer utilization comes from the accesses in the ZigZag mapping. DRAM remains external to Level 2 area and contributes the per-access energy reported by ZigZag.
 
 Memory accesses are normalized from the abstract Level 1 port width to the selected IP width. All selected IPs operate at their common `reference_frequency_mhz`, so workload time, energy, and inferences per second use the same characterized point. Power values are used exactly as characterized, without frequency scaling. Every selected IP must have `fmax_mhz >= reference_frequency_mhz`; `fmax_mhz` is otherwise only a capability metric and feasibility filter.
+
+For a composite PE, `p_idle_w` includes the idle baseline of its covered RFs and
+`p_active_w - p_idle_w` is the compute-only active increment. TALOS therefore
+adds only each covered RF's access-dependent increment:
+
+```text
+P_composite =
+    PE_count × PE_idle
+    + active_PEs × (PE_active - PE_idle)
+    + Σ covered_RF_count × utilization × (RF_active - RF_idle)
+```
+
+This contract avoids counting the covered RF idle power twice. Standalone RFs
+continue to use the full memory formula above.
 
 The `energy` and `power` objectives use the same model: `energy` minimizes joules per inference, while `power` minimizes time-weighted average watts. Level 2 still evaluates characterized IP area, implementation `fmax`, delay, throughput, and all configured constraints independently of these objectives.
 
@@ -307,6 +336,60 @@ ips:
       corner: tt
 ```
 
+If that PE characterization already includes RF RTL, declare the covered roles
+and reference ordinary RF entries from the same pool:
+
+```yaml
+ips:
+  - id: pe_tile_with_rfs
+    type: pe
+    area: 0.0032
+    throughput: 2.0
+    delay: 0.7
+    fmax_mhz: 800.0
+    included_rfs:
+      rf_i1: rf_512b_64b
+      rf_i2: rf_512b_64b
+      rf_o: rf_512b_64b
+    included_rf_power_mode: parent_idle_baseline
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.00045
+      p_active_w: 0.00105
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+
+  - id: rf_512b_64b
+    type: register_file
+    area: 0.0002
+    throughput: 1.0
+    delay: 0.2
+    fmax_mhz: 900.0
+    capacity_bits: 512
+    bandwidth_bits: 64
+    metadata:
+      accesses_per_cycle: 1
+    power_model:
+      source: synthetic
+      activity_method: vectorless
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.00002
+      p_active_w: 0.00008
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+```
+
+`included_rfs` currently accepts `rf_i1`, `rf_i2`, and `rf_o`. Partial coverage
+is allowed; omitted roles remain standalone IP selections. Referenced RFs must
+exist in the pool and satisfy the corresponding abstract capacity and bandwidth.
+`included_rf_power_mode: parent_idle_baseline` is mandatory whenever
+`included_rfs` is non-empty. Composite selection currently requires exactly one
+abstract PE component (`pe_array`).
+
 Memory IPs additionally use `capacity_bits`, `bandwidth_bits`, and `metadata.accesses_per_cycle`.
 
 `p_idle_w` and `p_active_w` are per-instance power values used directly by the estimator. `reference_frequency_mhz` is both their characterization point and the operating frequency used to convert workload cycles into seconds. All compatible candidates in a power-aware search must use the same reference frequency and must meet it with their `fmax_mhz`; no frequency scaling is applied. `voltage_v` records the characterization voltage and is checked for compatibility; it is not added or multiplied into the energy calculation. The included values are synthetic, but real values can be obtained from two Genus power scenarios: clocked idle and representative active operation.
@@ -336,12 +419,12 @@ The combined summary contains columns for:
 
 - raw and discretized Level 1 genomes;
 - decoded architecture parameters;
-- selected Level 2 IPs;
+- selected Level 2 IPs and RF roles covered by a composite PE;
 - objective values;
 - physical area, power, energy, latency, delay, throughput, and `fmax`;
 - DRAM accesses and DRAM access energy;
 - constraint status and violations;
-- estimated frames per second;
+- estimated inferences per second;
 - paths to the detailed Level 1 and Level 2 CSVs.
 
 Power, energy, workload latency, and `inferences_per_second` are populated when the selected objectives or constraints require the corresponding workload evaluation.
@@ -403,6 +486,7 @@ python examples/objective_sweep.py --help
 - Level 1 area is an analytical proxy unless a backend provides a physical area result.
 - DRAM bandwidth is fixed and DRAM is excluded from Level 2 on-chip area and power; DRAM access energy is still included in workload energy.
 - All compatible candidate IPs in a power-aware search must share one characterization frequency and PVT point.
+- Composite IP modeling currently covers only a PE with embedded RF roles; generic nested IP bundles are intentionally unsupported.
 - `inv_throughput` is only useful when a pool provides commensurate, varied throughput values; the synthetic pool is primarily calibrated for area, energy, delay, and `fmax`.
 - Exhaustive Level 2 runtime grows as the product of compatible candidates per component.
 

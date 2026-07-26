@@ -35,6 +35,7 @@ SUMMARY_FIELDNAMES = [
     "level2_solution_index",
     "level2_genome",
     "selected_ips",
+    "covered_by_pe",
     "level2_objective_names",
     "level2_objective_values",
     "level2_area",
@@ -314,6 +315,7 @@ def main() -> int:
         evaluate_activity=(
             None if activity_evaluator is None else activity_evaluator.evaluate
         ),
+        exhaustive_max_combinations=args.level2_exhaustive_max_combinations,
         failures=flow_failures,
     )
     print(
@@ -417,6 +419,7 @@ def select_level1_candidates(
     abstract_accelerator_from_level1_config: Any,
     constraints: UserConstraints | None = None,
     evaluate_activity: Any | None = None,
+    exhaustive_max_combinations: int = 100_000,
     failures: list[str] | None = None,
 ) -> list[Level1Candidate]:
     candidates: list[Level1Candidate] = []
@@ -482,6 +485,46 @@ def select_level1_candidates(
                     )
                 continue
             activity_profile = activity_result.activity_profile
+
+        if constraints is not None and constraints.level2_constraint_count:
+            try:
+                from talos.level2.genome import Level2GenomeSpec
+                from talos.level2.exhaustive_runner import run_level2_exhaustive
+
+                combination_count = Level2GenomeSpec.from_accelerator_and_pool(
+                    accelerator,
+                    pool,
+                ).genome_count()
+                physical_result = (
+                    None
+                    if combination_count > exhaustive_max_combinations
+                    else run_level2_exhaustive(
+                        accelerator=accelerator,
+                        ip_pool=pool,
+                        objective_names=["area"],
+                        constraints=constraints,
+                        activity_profile=activity_profile,
+                        max_combinations=exhaustive_max_combinations,
+                        save_csv=False,
+                    )
+                )
+            except Exception as exc:
+                print(f"[Level 1] Skipping architecture {source_index}: {exc}")
+                if failures is not None:
+                    failures.append(str(exc))
+                continue
+            if physical_result is None:
+                print(
+                    f"[Level 1] Physical prefilter skipped for architecture "
+                    f"{source_index}: {combination_count} combinations exceed "
+                    f"the {exhaustive_max_combinations} limit"
+                )
+            elif not physical_result.solutions:
+                print(
+                    f"[Level 1] Skipping architecture {source_index}: "
+                    "no Level 2 combination satisfies the physical constraints"
+                )
+                continue
 
         seen_discrete_genomes.add(discrete_key)
         candidates.append(
@@ -600,6 +643,7 @@ def build_summary_rows(
                 "level2_solution_index": solution.get("solution_index", ""),
                 "level2_genome": solution.get("genome", ""),
                 "selected_ips": solution.get("selected_ips", ""),
+                "covered_by_pe": solution.get("covered_by_pe", ""),
                 "level2_objective_names": solution.get(
                     "objective_names",
                     level2_objective_names,
@@ -693,6 +737,7 @@ def print_first_solution(solution: dict[str, Any]) -> None:
     print(f"    fmax_mhz: {solution.get('implementation_fmax_mhz')}")
     print(f"    constraints_satisfied: {solution.get('constraints_satisfied')}")
     print(f"    selected IPs: {solution.get('selected_ips')}")
+    print(f"    RFs covered by PE: {solution.get('covered_by_pe')}")
 
 
 if __name__ == "__main__":

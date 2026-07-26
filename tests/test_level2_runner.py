@@ -146,6 +146,90 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
                 save_csv=False,
             )
 
+    def test_exhaustive_runner_uses_conditional_rf_domains(self) -> None:
+        accelerator = AbstractAccelerator(
+            name="composite",
+            components=[
+                AbstractComponent(name="pe_array", type="pe"),
+                AbstractComponent(
+                    name="rf_i1",
+                    type="register_file",
+                    required_capacity_bits=512,
+                    required_bandwidth_bits=64,
+                ),
+                AbstractComponent(
+                    name="rf_i2",
+                    type="register_file",
+                    required_capacity_bits=512,
+                    required_bandwidth_bits=64,
+                ),
+            ],
+        )
+        ip_pool = IPPool(
+            [
+                IPBlock(
+                    id="pe_plain",
+                    type="pe",
+                    area=1,
+                    throughput=1,
+                    delay=1,
+                ),
+                IPBlock(
+                    id="pe_tile",
+                    type="pe",
+                    area=2,
+                    throughput=1,
+                    delay=1,
+                    included_rfs={"rf_i1": "rf_large"},
+                    included_rf_power_mode="parent_idle_baseline",
+                ),
+                IPBlock(
+                    id="rf_small",
+                    type="register_file",
+                    area=1,
+                    throughput=1,
+                    delay=1,
+                    capacity_bits=512,
+                    bandwidth_bits=64,
+                ),
+                IPBlock(
+                    id="rf_large",
+                    type="register_file",
+                    area=2,
+                    throughput=1,
+                    delay=1,
+                    capacity_bits=1024,
+                    bandwidth_bits=128,
+                ),
+            ]
+        )
+
+        result = run_level2_exhaustive(
+            accelerator=accelerator,
+            ip_pool=ip_pool,
+            objective_names=["area", "delay"],
+            save_csv=False,
+        )
+
+        self.assertEqual(result.explored_combinations, 6)
+        self.assertEqual(
+            {tuple(row["genome"]) for row in result.solutions},
+            {
+                (0, 0, 0),
+                (0, 0, 1),
+                (0, 1, 0),
+                (0, 1, 1),
+                (1, 1, 0),
+                (1, 1, 1),
+            },
+        )
+        tile = next(
+            row
+            for row in result.solutions
+            if row["selected_ips"]["pe_array"] == "pe_tile"
+        )
+        self.assertEqual(tile["covered_by_pe"], {"rf_i1": "pe_tile"})
+
     def test_level2_dispatcher_runs_exhaustive(self) -> None:
         ip_pool = IPPool.from_yaml(SYNTHETIC_POOL_PATH)
         accelerator = abstract_accelerator_from_level1_config(
@@ -257,6 +341,46 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
     "pymoo is not installed",
 )
 class Level2RunnerTests(unittest.TestCase):
+    def test_level2_nsga2_repairs_composite_genomes_to_integers(self) -> None:
+        accelerator = AbstractAccelerator(
+            name="composite",
+            components=[
+                AbstractComponent(name="pe_array", type="pe"),
+                AbstractComponent(name="rf_i1", type="register_file"),
+            ],
+        )
+        pool = IPPool(
+            [
+                IPBlock("pe_plain", "pe", 10, 1, 1),
+                IPBlock(
+                    "pe_tile",
+                    "pe",
+                    1,
+                    1,
+                    1,
+                    included_rfs={"rf_i1": "rf_large"},
+                    included_rf_power_mode="parent_idle_baseline",
+                ),
+                IPBlock("rf_small", "register_file", 1, 1, 1),
+                IPBlock("rf_large", "register_file", 2, 1, 1),
+            ]
+        )
+
+        result = run_level2_nsga2(
+            accelerator=accelerator,
+            ip_pool=pool,
+            objective_names=["area"],
+            pop_size=3,
+            n_gen=2,
+            save_csv=False,
+        )
+
+        genomes = result.pymoo_result.pop.get("X").tolist()
+        self.assertGreater(len(genomes), 0)
+        for genome in genomes:
+            self.assertEqual(genome, result.problem.spec.canonicalize(genome))
+            self.assertTrue(all(float(value).is_integer() for value in genome))
+
     def test_level2_nsga2_returns_no_invalid_solutions(self) -> None:
         ip_pool = IPPool.from_yaml(IP_POOL_PATH)
         accelerator = abstract_accelerator_from_zigzag_yaml(str(ZIGZAG_YAML_PATH))

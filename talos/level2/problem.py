@@ -67,6 +67,7 @@ class Level2PymooProblem(ElementwiseProblem):
             n_ieq_constr=(
                 0 if constraints is None else constraints.level2_constraint_count
             ),
+            vtype=int,
             xl=xl,
             xu=xu,
         )

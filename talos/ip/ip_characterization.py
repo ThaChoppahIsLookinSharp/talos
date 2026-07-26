@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 from typing import Any
 
@@ -12,6 +12,8 @@ VALID_IP_TYPES = {
     "dram",
     "interconnect",
 }
+
+INCLUDED_RF_POWER_MODE = "parent_idle_baseline"
 
 
 @dataclass(frozen=True)
@@ -68,6 +70,8 @@ class IPBlock:
     bandwidth_bits: int | None = None
     metadata: dict[str, Any] | None = None
     power_model: PowerCharacterization | None = None
+    included_rfs: dict[str, str] = field(default_factory=dict)
+    included_rf_power_mode: str | None = None
 
     def __post_init__(self) -> None:
         if not self.id.strip():
@@ -95,4 +99,26 @@ class IPBlock:
         ):
             raise ValueError(
                 "IPBlock power_model must be a PowerCharacterization when provided."
+            )
+        if not isinstance(self.included_rfs, dict):
+            raise ValueError("IPBlock included_rfs must be a dict.")
+        if any(
+            not isinstance(role, str)
+            or not role.strip()
+            or not isinstance(ip_id, str)
+            or not ip_id.strip()
+            for role, ip_id in self.included_rfs.items()
+        ):
+            raise ValueError(
+                "IPBlock included_rfs roles and referenced IP ids must be non-empty strings."
+            )
+        if self.included_rf_power_mode not in (None, INCLUDED_RF_POWER_MODE):
+            raise ValueError(
+                "IPBlock included_rf_power_mode must be "
+                f"{INCLUDED_RF_POWER_MODE!r} when provided."
+            )
+        if self.included_rfs and self.included_rf_power_mode is None:
+            raise ValueError(
+                "IPBlock with included_rfs requires included_rf_power_mode="
+                f"{INCLUDED_RF_POWER_MODE!r}."
             )

@@ -38,3 +38,6 @@ class AbstractAccelerator:
             raise ValueError("AbstractAccelerator name must not be empty.")
         if not self.components:
             raise ValueError("AbstractAccelerator requires at least one component.")
+        names = [component.name for component in self.components]
+        if len(set(names)) != len(names):
+            raise ValueError("AbstractAccelerator component names must be unique.")

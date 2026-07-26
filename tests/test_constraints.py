@@ -33,6 +33,7 @@ from talos.constraints import (
     estimated_fps,
     estimated_inferences_per_second,
 )
+from talos.evaluation.workload_activity import LayerActivity, WorkloadActivityProfile
 from talos.evaluation.zigzag_evaluator import EvaluationResult
 from talos.ga.pymoo_runner import TalosPymooProblem, _build_nsga2
 from talos.ip import IPBlock, IPPool
@@ -236,6 +237,7 @@ class UserConstraintsTests(unittest.TestCase):
                     "operating_frequency_mhz": 100.0,
                     "dram_accesses": 1000,
                     "dram_access_energy_j": 1e-6,
+                    "covered_by_pe": {"rf_i1": "pe_tile"},
                     "constraint_violations": [],
                 }
             ],
@@ -250,6 +252,7 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertIn("operating_frequency_mhz", SUMMARY_FIELDNAMES)
         self.assertIn("dram_accesses", SUMMARY_FIELDNAMES)
         self.assertIn("dram_access_energy_j", SUMMARY_FIELDNAMES)
+        self.assertIn("covered_by_pe", SUMMARY_FIELDNAMES)
         self.assertNotIn("level1_area", SUMMARY_FIELDNAMES)
         self.assertTrue(rows[0]["constraints_satisfied"])
         self.assertEqual(rows[0]["constraint_violations"], [])
@@ -259,6 +262,7 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertEqual(rows[0]["workload_energy_j"], 2e-6)
         self.assertEqual(rows[0]["dram_accesses"], 1000)
         self.assertEqual(rows[0]["dram_access_energy_j"], 1e-6)
+        self.assertEqual(rows[0]["covered_by_pe"], {"rf_i1": "pe_tile"})
 
     def test_full_flow_summary_reports_base_level1_metrics(self) -> None:
         rows = build_summary_rows(
@@ -293,8 +297,24 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertEqual(rows[0]["level1_area_proxy"], 30.0)
         self.assertEqual(rows[0]["inferences_per_second"], "")
 
-    def test_level1_selection_does_not_exhaustively_prefilter_physical_constraints(self) -> None:
+    def test_level1_selection_skips_physically_infeasible_candidates(self) -> None:
         pool = IPPool.from_yaml(SYNTHETIC_POOL_PATH)
+        profile = WorkloadActivityProfile(
+            layers=(
+                LayerActivity(
+                    layer_id="test",
+                    latency_cycles=1000,
+                    mac_count=1000,
+                    spatially_used_pes=1,
+                    memory_accesses={
+                        "rf_i1": 100,
+                        "rf_i2": 100,
+                        "rf_o": 100,
+                        "gb": 100,
+                    },
+                ),
+            )
+        )
         candidates = select_level1_candidates(
             level1_genomes=[
                 [0, 0, 0, 0, 1, 3, 2],
@@ -315,9 +335,36 @@ class UserConstraintsTests(unittest.TestCase):
                 max_power_w=0.12,
                 min_frequency_mhz=800.0,
             ),
+            evaluate_activity=lambda _genome: EvaluationResult(
+                latency=1,
+                energy=1,
+                area=1,
+                valid=True,
+                activity_profile=profile,
+            ),
         )
 
-        self.assertEqual(candidates[0].discrete_genome, [0, 0, 0, 0, 1, 3, 2])
+        self.assertEqual(candidates[0].source_index, 1)
+        self.assertEqual(candidates[0].discrete_genome, [1, 2, 0, 2, 1, 0, 1])
+
+    def test_level1_physical_prefilter_does_not_reject_large_spaces(self) -> None:
+        failures: list[str] = []
+        candidates = select_level1_candidates(
+            level1_genomes=[[0] * GENOME_LENGTH],
+            level1_objectives=[[1.0]],
+            level1_objective_names=["area"],
+            max_architectures=1,
+            pool=IPPool.from_yaml(SYNTHETIC_POOL_PATH),
+            decode_genome=decode_genome,
+            gene_bounds=lambda: [(0, len(spec.options) - 1) for spec in GENOME_SPEC],
+            abstract_accelerator_from_level1_config=abstract_accelerator_from_level1_config,
+            constraints=UserConstraints(max_area_mm2=1.0),
+            exhaustive_max_combinations=1,
+            failures=failures,
+        )
+
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(failures, [])
 
     def test_level1_selection_deduplicates_discrete_genomes(self) -> None:
         pool = IPPool.from_yaml(SYNTHETIC_POOL_PATH)

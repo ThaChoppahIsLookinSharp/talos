@@ -6,7 +6,11 @@ from typing import Any
 
 from talos.evaluation.workload_activity import LayerActivity, WorkloadActivityProfile
 from talos.ip.ip_characterization import PowerCharacterization
-from talos.level2.genome import ImplementedAccelerator, ImplementedComponent
+from talos.level2.genome import (
+    ImplementedAccelerator,
+    ImplementedComponent,
+    physical_components,
+)
 
 
 UTILIZATION_TOLERANCE = 1e-5
@@ -44,6 +48,7 @@ def evaluate_workload_power(
     for name in MEMORY_COMPONENT_NAMES:
         if name not in components:
             raise ValueError(f"Workload power requires component {name!r}.")
+    physical_components(implemented.components)
 
     operating_frequency_mhz = _validate_selected_characterizations(
         implemented.components
@@ -92,6 +97,15 @@ def validate_power_aware_exploration(
             if gene.component.type != "pe":
                 _positive_metadata(ip.metadata, "accesses_per_cycle", ip.id)
             characterized.append((ip.id, ip.power_model, ip.fmax_mhz))
+            if (
+                gene.component.type == "pe"
+                and ip.included_rfs
+                and ip.included_rf_power_mode != "parent_idle_baseline"
+            ):
+                raise ValueError(
+                    f"{POWER_REQUIREMENTS_ERROR} Composite PE {ip.id!r} must "
+                    "use included_rf_power_mode='parent_idle_baseline'."
+                )
 
     _validate_characterizations(characterized, require_operable=False)
 
@@ -161,6 +175,9 @@ def _memory_power(
         memory_name=component.abstract_component.name,
         layer_id=layer.layer_id,
     )
+    if component.covered_by_pe_id is not None:
+        model = _power_model(component)
+        return count * utilization * (model.p_active_w - model.p_idle_w)
     return _component_power_w(count, utilization, _power_model(component))
 
 

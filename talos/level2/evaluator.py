@@ -5,7 +5,11 @@ from typing import Iterable
 
 from talos.constraints import UserConstraints
 from talos.evaluation.workload_activity import WorkloadActivityProfile
-from talos.level2.genome import ImplementedAccelerator, ImplementedComponent
+from talos.level2.genome import (
+    ImplementedAccelerator,
+    ImplementedComponent,
+    physical_components,
+)
 from talos.level2.workload_power import evaluate_workload_power
 
 
@@ -36,16 +40,17 @@ class Level2Evaluator:
     def evaluate(self, implemented: ImplementedAccelerator) -> Level2EvaluationResult:
         try:
             self._validate_implemented_accelerator(implemented.components)
+            physical = physical_components(implemented.components)
             area = sum(
                 component.abstract_component.count * component.ip.area
-                for component in implemented.components
+                for component in physical
             )
-            delay = max(component.ip.delay for component in implemented.components)
+            delay = max(component.ip.delay for component in physical)
             throughput = min(
-                component.ip.throughput for component in implemented.components
+                component.ip.throughput for component in physical
             )
             implementation_fmax_mhz = self._implementation_fmax_mhz(
-                implemented.components
+                physical
             )
 
             power_result = None

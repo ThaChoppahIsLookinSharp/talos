@@ -10,6 +10,7 @@ from unittest.mock import patch
 from zigzag.hardware.architecture.memory_port import DataDirection
 from zigzag.mapping.data_movement import MemoryAccesses
 
+from talos.architecture.genome import ArchitectureConfig
 from talos.evaluation.workload_activity import (
     LayerActivity,
     extract_workload_activity_profile,
@@ -49,6 +50,36 @@ def _accesses(
 
 
 class WorkloadActivityAdapterTests(unittest.TestCase):
+    def test_area_proxy_counts_three_rfs_and_replicated_global_buffers(self) -> None:
+        evaluator = ZigZagEvaluator.__new__(ZigZagEvaluator)
+        base = {
+            "pe_x": 4,
+            "pe_y": 8,
+            "rf_size_bits": 64,
+            "rf_bw_bits": 8,
+            "gb_size_bits": 8192,
+            "gb_bw_bits": 64,
+            "dram_bw_bits": 512,
+        }
+
+        for served_dimensions, gb_count in (
+            ([], 32),
+            (["D1"], 8),
+            (["D2"], 4),
+            (["D1", "D2"], 1),
+        ):
+            with self.subTest(served_dimensions=served_dimensions):
+                area = evaluator._estimate_area(
+                    ArchitectureConfig(
+                        **base,
+                        gb_served_dims=served_dimensions,
+                    )
+                )
+                self.assertEqual(
+                    area,
+                    32 + 3 * 32 * 64 * 0.001 + gb_count * 8192 * 0.0005,
+                )
+
     def test_layer_activity_validates_values(self) -> None:
         values = {
             "layer_id": "layer",
