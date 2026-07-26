@@ -2,15 +2,20 @@ from __future__ import annotations
 
 from itertools import product
 from pathlib import Path
+from types import SimpleNamespace
+import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 from pymoo.optimize import minimize
 
 from examples.constraint_sweep import build_command, build_parser, sweep_cases
 from examples.full_flow_example import (
+    Level1Candidate,
     SUMMARY_FIELDNAMES,
     build_summary_rows,
+    main as full_flow_main,
     parse_args,
     select_level1_candidates,
 )
@@ -141,6 +146,36 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertFalse(result.valid)
         self.assertIn("unavailable", result.error_message or "")
 
+    def test_level2_constraints_are_exported_to_pymoo(self) -> None:
+        component = AbstractComponent(name="pe", type="pe")
+        problem = Level2PymooProblem(
+            accelerator=AbstractAccelerator(name="a", components=[component]),
+            ip_pool=IPPool(
+                [
+                    IPBlock(
+                        id="pe0",
+                        type="pe",
+                        area=1.0,
+                        throughput=1.0,
+                        delay=1.0,
+                        fmax_mhz=500.0,
+                    )
+                ]
+            ),
+            objective_names=["area"],
+            constraints=UserConstraints(
+                max_area_mm2=0.5,
+                min_frequency_mhz=600.0,
+            ),
+        )
+        out: dict[str, list[float]] = {}
+
+        problem._evaluate(np.zeros(1), out)
+
+        self.assertEqual(problem.n_ieq_constr, 2)
+        self.assertEqual(out["F"], [1.0])
+        self.assertEqual(out["G"], [0.5, 100.0])
+
     def test_full_flow_summary_reports_constraints_and_estimated_fps(self) -> None:
         rows = build_summary_rows(
             architecture_index=0,
@@ -183,6 +218,39 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertEqual(rows[0]["workload_energy_j"], 2e-6)
         self.assertEqual(rows[0]["dram_accesses"], 1000)
         self.assertEqual(rows[0]["dram_access_energy_j"], 1e-6)
+
+    def test_full_flow_summary_reports_base_level1_metrics(self) -> None:
+        rows = build_summary_rows(
+            architecture_index=0,
+            level1_raw_genome=[0.0] * GENOME_LENGTH,
+            level1_discrete_genome=[0] * GENOME_LENGTH,
+            level1_architecture_config={},
+            level1_objective_values=[30.0],
+            level1_objective_names=["area"],
+            level2_objective_names=["area"],
+            level1_csv_path="level1.csv",
+            level2_csv_path=None,
+            level2_solutions=[
+                {
+                    "solution_index": 0,
+                    "valid": True,
+                    "implementation_fmax_mhz": 500.0,
+                    "constraint_violations": [],
+                }
+            ],
+            constraints=UserConstraints(),
+            level1_evaluation=EvaluationResult(
+                latency=10.0,
+                energy=20.0,
+                area=30.0,
+                valid=True,
+            ),
+        )
+
+        self.assertEqual(rows[0]["level1_latency"], 10.0)
+        self.assertEqual(rows[0]["level1_energy"], 20.0)
+        self.assertEqual(rows[0]["level1_area_proxy"], 30.0)
+        self.assertEqual(rows[0]["estimated_fps"], 50_000_000.0)
 
     def test_level1_selection_does_not_exhaustively_prefilter_physical_constraints(self) -> None:
         pool = IPPool.from_yaml(SYNTHETIC_POOL_PATH)
@@ -255,6 +323,35 @@ class UserConstraintsTests(unittest.TestCase):
 
         self.assertEqual([row["selected_ips"]["pe"] for row in rows], ["pe0", "pe1"])
 
+    def test_level2_solution_rows_exclude_infeasible_candidates(self) -> None:
+        component = AbstractComponent(name="pe", type="pe")
+        problem = Level2PymooProblem(
+            accelerator=AbstractAccelerator(name="a", components=[component]),
+            ip_pool=IPPool(
+                [
+                    IPBlock(
+                        id="pe0",
+                        type="pe",
+                        area=1,
+                        throughput=1,
+                        delay=1,
+                    )
+                ]
+            ),
+            objective_names=["area"],
+            constraints=UserConstraints(max_area_mm2=0.5),
+        )
+
+        rows = _build_solution_rows(
+            problem=problem,
+            solution_vectors=[[0]],
+            pop_size=1,
+            n_gen=1,
+            seed=1,
+        )
+
+        self.assertEqual(rows, [])
+
     def test_level2_energy_objective_requires_activity_profile(self) -> None:
         component = AbstractComponent(name="pe", type="pe")
         with self.assertRaisesRegex(ValueError, "activity profile"):
@@ -297,6 +394,77 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertEqual(parse_args(["--level1-objectives", "latency"]).level1_objectives, ["latency"])
         self.assertEqual(parse_args(["--level2-objectives", "delay"]).level2_objectives, ["delay"])
         self.assertEqual(parse_args(["--level2-objectives", "energy"]).level2_objectives, ["energy"])
+
+    def test_full_flow_distinguishes_failure_from_no_feasible_designs(self) -> None:
+        config = decode_genome([0] * GENOME_LENGTH)
+        candidate = Level1Candidate(
+            source_index=0,
+            raw_genome=[0.0] * GENOME_LENGTH,
+            objective_values=[1.0],
+            discrete_genome=[0] * GENOME_LENGTH,
+            architecture_config=config,
+            accelerator=abstract_accelerator_from_level1_config(config),
+        )
+        level1_result = SimpleNamespace(
+            X=np.zeros((1, GENOME_LENGTH)),
+            F=np.ones((1, 1)),
+            talos=SimpleNamespace(csv_path=None),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workload = root / "workload.onnx"
+            ip_pool = root / "pool.yaml"
+            workload.touch()
+            ip_pool.touch()
+            args = parse_args(
+                [
+                    "--workload",
+                    str(workload),
+                    "--ip-pool",
+                    str(ip_pool),
+                    "--results-dir",
+                    str(root / "results"),
+                    "--level1-objectives",
+                    "area",
+                    "--level2-objectives",
+                    "area",
+                ]
+            )
+
+            for outcome, expected_code in (
+                (RuntimeError("characterization failed"), 1),
+                (SimpleNamespace(solutions=[], csv_path=None), 0),
+            ):
+                run_patch = (
+                    patch(
+                        "talos.level2.runner.run_level2",
+                        side_effect=outcome,
+                    )
+                    if isinstance(outcome, Exception)
+                    else patch(
+                        "talos.level2.runner.run_level2",
+                        return_value=outcome,
+                    )
+                )
+                with (
+                    patch(
+                        "examples.full_flow_example.parse_args",
+                        return_value=args,
+                    ),
+                    patch("talos.ip.IPPool.from_yaml", return_value=object()),
+                    patch(
+                        "talos.ga.pymoo_runner.run_nsga2_pymoo",
+                        return_value=level1_result,
+                    ),
+                    patch("talos.evaluation.zigzag_evaluator.ZigZagEvaluator"),
+                    patch(
+                        "examples.full_flow_example.select_level1_candidates",
+                        return_value=[candidate],
+                    ),
+                    run_patch,
+                ):
+                    self.assertEqual(full_flow_main(), expected_code)
 
     def test_constraint_sweep_builds_seven_worker_aware_commands(self) -> None:
         cases = sweep_cases()
@@ -355,7 +523,8 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertIn("--level2-objectives", command)
         self.assertIn("--workers", command)
         self.assertEqual(command[command.index("--workers") + 1], "8")
-        self.assertEqual(command[command.index("--min-frequency-mhz") + 1], "550.0")
+        self.assertEqual(args.level2_strategy, "exhaustive")
+        self.assertEqual(command[command.index("--min-frequency-mhz") + 1], "600.0")
 
         args = build_objective_sweep_parser().parse_args(["--no-constraints"])
         command = build_objective_sweep_command(

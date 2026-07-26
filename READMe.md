@@ -104,7 +104,20 @@ The exhaustive strategy evaluates every compatible combination up to `--level2-e
 | `delay` | Maximum delay among selected IPs |
 | `inv_throughput` | Reciprocal of the minimum selected-IP throughput |
 
-For power-aware exploration, TALOS extracts per-layer MAC counts, memory accesses, latency, spatial PE use, and DRAM access energy from ZigZag. On-chip power is interpolated between each IP's idle and active characterization; workload energy is on-chip power integrated over execution time plus DRAM access energy.
+For power-aware exploration, TALOS reuses the mapping selected by ZigZag. For each layer it extracts the latency, spatially used PEs, physical accesses at every memory level, and DRAM access energy. PE power directly distinguishes mapped active PEs from the remaining idle PEs. Memory power is interpolated from access utilization:
+
+```text
+P_PE = active_PEs × p_active_w + idle_PEs × p_idle_w
+P_memory = instances × (p_idle_w + utilization × (p_active_w - p_idle_w))
+E_inference = E_DRAM + Σ(P_layer × layer_time)
+P_average = E_inference / inference_time
+```
+
+For example, if ZigZag maps a layer onto 16 of `N` PEs, the PE term is exactly `16 × p_active_w + (N - 16) × p_idle_w`. Register-file and global-buffer utilization comes from the accesses in the ZigZag mapping. DRAM remains external to Level 2 area and contributes the per-access energy reported by ZigZag.
+
+Memory accesses are normalized from the abstract Level 1 port width to the selected IP width. Workload time and FPS use the selected implementation's `fmax`. Power values are used exactly as characterized, without frequency scaling.
+
+The `energy` and `power` objectives use the same model: `energy` minimizes joules per inference, while `power` minimizes time-weighted average watts. Level 2 still evaluates characterized IP area, implementation `fmax`, delay, throughput, and all configured constraints independently of these objectives.
 
 ### User constraints
 
@@ -190,9 +203,9 @@ python examples/full_flow_example.py \
   --level1-objectives latency energy area \
   --level2-objectives area energy delay \
   --max-latency-cycles 100000000 \
-  --max-area-mm2 0.40 \
-  --max-power-w 0.12 \
-  --min-frequency-mhz 550 \
+  --max-area-mm2 6.0 \
+  --max-power-w 1.2 \
+  --min-frequency-mhz 600 \
   --level1-pop-size 24 \
   --level1-generations 3 \
   --level2-pop-size 24 \
@@ -250,11 +263,14 @@ Run all seven objective combinations:
 ```bash
 python examples/objective_sweep.py \
   --workers 8 \
-  --level2-strategy nsga2 \
+  --level2-strategy exhaustive \
+  --max-area-mm2 6.0 \
+  --max-power-w 1.2 \
+  --min-frequency-mhz 600 \
   --results-dir results/objective_sweep
 ```
 
-Use `--no-constraints` with `objective_sweep.py` to compare objectives without the default area, power, and frequency limits.
+These objective-sweep defaults are calibrated to leave a useful feasible region in the included synthetic pool; they are not silicon design targets. The constraint sweep intentionally uses much tighter values as regression cases. Use `--no-constraints` to compare objectives without area, power, or frequency limits.
 
 ## IP pool format
 
@@ -262,6 +278,8 @@ IP pools are YAML files with an `ips` list. The two included pools are:
 
 - `configs/ip_pool_example.yaml`: illustrative values for small examples.
 - `configs/ip_pool_synthetic_28nm.yaml`: synthetic values used by tests and sweeps; they are not foundry characterization.
+
+The synthetic pool contains 2 PE, 4 register-file, and 7 global-buffer choices. It covers every Level 1 genome and produces at most 896 compatible Level 2 combinations for one architecture, so exhaustive selection is normally preferable. Add variants only from a coherent characterization flow rather than inventing extra points for population size.
 
 A minimal PE entry looks like this:
 
@@ -288,12 +306,14 @@ ips:
 
 Memory IPs additionally use `capacity_bits`, `bandwidth_bits`, and `metadata.accesses_per_cycle`.
 
+`p_idle_w` and `p_active_w` are per-instance power values used directly by the estimator. `reference_frequency_mhz` records their characterization point but does not rescale them. `voltage_v` records that characterization voltage and is checked for compatibility; it is not added or multiplied into the energy calculation. The included values are synthetic, but real values can be obtained from two Genus power scenarios: clocked idle and representative active operation.
+
 Energy or power exploration requires every compatible candidate IP to provide:
 
 - `fmax_mhz`;
 - `p_idle_w` and `p_active_w`;
-- `macs_per_cycle` for PEs or `accesses_per_cycle` for memories;
-- compatible reference frequency, voltage, temperature, and process corner.
+- `accesses_per_cycle` for memories;
+- compatible voltage, temperature, and process corner.
 
 ## Results
 
@@ -380,6 +400,7 @@ python examples/objective_sweep.py --help
 - Level 1 area is an analytical proxy unless a backend provides a physical area result.
 - DRAM bandwidth is fixed and DRAM is excluded from Level 2 on-chip area and power; DRAM access energy is still included in workload energy.
 - All compatible candidate IPs in a power-aware search must share one characterization frequency and PVT point.
+- `inv_throughput` is only useful when a pool provides commensurate, varied throughput values; the synthetic pool is primarily calibrated for area, energy, delay, and `fmax`.
 - Exhaustive Level 2 runtime grows as the product of compatible candidates per component.
 
 ## Main dependencies

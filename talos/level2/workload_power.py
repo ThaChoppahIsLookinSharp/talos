@@ -82,17 +82,13 @@ def validate_power_aware_exploration(
 
     characterized: list[tuple[str, PowerCharacterization, float | None]] = []
     for gene in spec.genes:
-        metadata_name = (
-            "macs_per_cycle"
-            if gene.component.type == "pe"
-            else "accesses_per_cycle"
-        )
         for ip in gene.candidates:
             if ip.power_model is None:
                 raise ValueError(
                     f"{POWER_REQUIREMENTS_ERROR} IP {ip.id!r} has no power_model."
                 )
-            _positive_metadata(ip.metadata, metadata_name, ip.id)
+            if gene.component.type != "pe":
+                _positive_metadata(ip.metadata, "accesses_per_cycle", ip.id)
             characterized.append((ip.id, ip.power_model, ip.fmax_mhz))
 
     _validate_characterizations(characterized)
@@ -108,24 +104,32 @@ def validate_power_aware_exploration(
                 f"Layer {layer.layer_id!r} uses {layer.spatially_used_pes} PEs "
                 f"spatially but the architecture has {pe_counts[0]}."
             )
+        if layer.mac_count > 0 and layer.spatially_used_pes == 0:
+            raise ValueError(
+                f"Layer {layer.layer_id!r} executes MACs but uses no PEs spatially."
+            )
 
 
-def _pe_power(component: ImplementedComponent, layer: LayerActivity) -> float:
+def _pe_power(
+    component: ImplementedComponent,
+    layer: LayerActivity,
+) -> float:
     count = component.abstract_component.count
-    rate = _positive_metadata(
-        component.ip.metadata,
-        "macs_per_cycle",
-        component.ip.id,
+    active_count = layer.spatially_used_pes
+    if active_count > count:
+        raise ValueError(
+            f"Layer {layer.layer_id!r} uses {active_count} PEs spatially but "
+            f"the implementation has {count}."
+        )
+    if layer.mac_count > 0 and active_count == 0:
+        raise ValueError(
+            f"Layer {layer.layer_id!r} executes MACs but uses no PEs spatially."
+        )
+    model = _power_model(component)
+    return (
+        active_count * model.p_active_w
+        + (count - active_count) * model.p_idle_w
     )
-    utilization = _pe_utilization(
-        mac_count=layer.mac_count,
-        latency_cycles=layer.latency_cycles,
-        instance_count=count,
-        macs_per_cycle=rate,
-        spatially_used_pes=layer.spatially_used_pes,
-        layer_id=layer.layer_id,
-    )
-    return _component_power_w(count, utilization, _power_model(component))
 
 
 def _memory_power(
@@ -134,6 +138,14 @@ def _memory_power(
     accesses: float,
 ) -> float:
     count = component.abstract_component.count
+    source_width_bits = component.abstract_component.required_bandwidth_bits
+    selected_width_bits = component.ip.bandwidth_bits
+    if source_width_bits is not None and selected_width_bits is not None:
+        if selected_width_bits <= 0:
+            raise ValueError(
+                f"Selected memory IP {component.ip.id!r} requires positive bandwidth_bits."
+            )
+        accesses *= source_width_bits / selected_width_bits
     rate = _positive_metadata(
         component.ip.metadata,
         "accesses_per_cycle",
@@ -148,32 +160,6 @@ def _memory_power(
         layer_id=layer.layer_id,
     )
     return _component_power_w(count, utilization, _power_model(component))
-
-
-def _pe_utilization(
-    *,
-    mac_count: float,
-    latency_cycles: float,
-    instance_count: int,
-    macs_per_cycle: float,
-    spatially_used_pes: int,
-    layer_id: str = "",
-) -> float:
-    if instance_count <= 0:
-        raise ValueError("PE instance count must be > 0.")
-    if macs_per_cycle <= 0 or not math.isfinite(macs_per_cycle):
-        raise ValueError("macs_per_cycle must be finite and > 0.")
-    if spatially_used_pes > instance_count:
-        raise ValueError(
-            f"Layer {layer_id!r} uses {spatially_used_pes} PEs spatially but "
-            f"the implementation has {instance_count}."
-        )
-    if mac_count == 0:
-        return 0.0
-    utilization = mac_count / (
-        latency_cycles * instance_count * macs_per_cycle
-    )
-    return _validate_utilization(utilization, f"PE utilization for layer {layer_id!r}")
 
 
 def _memory_utilization(
@@ -218,7 +204,9 @@ def _component_power_w(
     model: PowerCharacterization,
 ) -> float:
     return instance_count * (
-        model.p_idle_w + utilization * (model.p_active_w - model.p_idle_w)
+        model.p_idle_w
+        + utilization
+        * (model.p_active_w - model.p_idle_w)
     )
 
 
@@ -258,20 +246,13 @@ def _validate_characterizations(
 ) -> float:
     if not characterized:
         raise ValueError("No characterized IPs were provided.")
-    frequencies = {model.reference_frequency_mhz for _id, model, _fmax in characterized}
-    if len(frequencies) != 1:
-        raise ValueError("Selected IPs have incompatible reference frequencies.")
     for field in ("corner", "voltage_v", "temperature_c"):
         if len({getattr(model, field) for _id, model, _fmax in characterized}) != 1:
             raise ValueError(f"Selected IPs have incompatible power {field} values.")
 
-    operating_frequency_mhz = frequencies.pop()
+    fmax_values: list[float] = []
     for ip_id, _model, fmax_mhz in characterized:
         if fmax_mhz is None:
             raise ValueError(f"Selected IP {ip_id!r} has no fmax_mhz.")
-        if fmax_mhz < operating_frequency_mhz:
-            raise ValueError(
-                f"Selected IP {ip_id!r} fmax_mhz {fmax_mhz} is below power "
-                f"reference frequency {operating_frequency_mhz}."
-            )
-    return operating_frequency_mhz
+        fmax_values.append(fmax_mhz)
+    return min(fmax_values)

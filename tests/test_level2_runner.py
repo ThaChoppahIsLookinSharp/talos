@@ -197,7 +197,7 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
         )
         self.assertIsNone(area_problem.activity_profile)
 
-    def test_power_preflight_rejects_frequency_and_pvt_mismatch(self) -> None:
+    def test_power_preflight_allows_frequency_metadata_but_rejects_pvt_mismatch(self) -> None:
         accelerator = AbstractAccelerator(
             name="a",
             components=[AbstractComponent(name="pe_array", type="pe")],
@@ -215,15 +215,14 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
                 power_model=model,
             )
 
-        with self.assertRaisesRegex(ValueError, "reference frequencies"):
-            Level2PymooProblem(
-                accelerator=accelerator,
-                ip_pool=IPPool(
-                    [ip("a", power_model()), ip("b", power_model(frequency=400))]
-                ),
-                objective_names=["power"],
-                activity_profile=activity_profile(),
-            )
+        Level2PymooProblem(
+            accelerator=accelerator,
+            ip_pool=IPPool(
+                [ip("a", power_model()), ip("b", power_model(frequency=400))]
+            ),
+            objective_names=["power"],
+            activity_profile=activity_profile(),
+        )
         with self.assertRaisesRegex(ValueError, "voltage_v"):
             Level2PymooProblem(
                 accelerator=accelerator,
@@ -240,6 +239,23 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
     "pymoo is not installed",
 )
 class Level2RunnerTests(unittest.TestCase):
+    def test_level2_nsga2_returns_no_invalid_solutions(self) -> None:
+        ip_pool = IPPool.from_yaml(IP_POOL_PATH)
+        accelerator = abstract_accelerator_from_zigzag_yaml(str(ZIGZAG_YAML_PATH))
+
+        result = run_level2_nsga2(
+            accelerator=accelerator,
+            ip_pool=ip_pool,
+            pop_size=4,
+            n_gen=1,
+            constraints=UserConstraints(max_power_w=1e-12),
+            activity_profile=activity_profile(),
+            save_csv=False,
+        )
+
+        self.assertEqual(result.problem.n_ieq_constr, 1)
+        self.assertEqual(result.solutions, [])
+
     def test_level2_nsga2_runner_returns_solutions(self) -> None:
         ip_pool = IPPool.from_yaml(IP_POOL_PATH)
         accelerator = abstract_accelerator_from_zigzag_yaml(str(ZIGZAG_YAML_PATH))

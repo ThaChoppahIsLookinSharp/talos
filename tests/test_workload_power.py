@@ -8,8 +8,8 @@ from talos.ip import IPBlock, PowerCharacterization
 from talos.level2.genome import ImplementedAccelerator, ImplementedComponent
 from talos.level2.workload_power import (
     _component_power_w,
+    _memory_power,
     _memory_utilization,
-    _pe_utilization,
     evaluate_workload_power,
 )
 
@@ -27,10 +27,15 @@ def _model(idle: float, active: float) -> PowerCharacterization:
     )
 
 
-def _implemented(pe_model: PowerCharacterization) -> ImplementedAccelerator:
+def _implemented(
+    pe_model: PowerCharacterization,
+    *,
+    fmax_mhz: float = 100.0,
+    pe_count: int = 1,
+) -> ImplementedAccelerator:
     components: list[ImplementedComponent] = []
     for name, ip_type, count, metadata, model in (
-        ("pe_array", "pe", 1, {"macs_per_cycle": 1}, pe_model),
+        ("pe_array", "pe", pe_count, {}, pe_model),
         ("rf_i1", "register_file", 1, {"accesses_per_cycle": 1}, _model(0, 0)),
         ("rf_i2", "register_file", 1, {"accesses_per_cycle": 1}, _model(0, 0)),
         ("rf_o", "register_file", 1, {"accesses_per_cycle": 1}, _model(0, 0)),
@@ -49,7 +54,7 @@ def _implemented(pe_model: PowerCharacterization) -> ImplementedAccelerator:
                     area=1.0,
                     throughput=1.0,
                     delay=1.0,
-                    fmax_mhz=100.0,
+                    fmax_mhz=fmax_mhz,
                     metadata=metadata,
                     power_model=model,
                 ),
@@ -59,23 +64,6 @@ def _implemented(pe_model: PowerCharacterization) -> ImplementedAccelerator:
 
 
 class UtilizationTests(unittest.TestCase):
-    def test_pe_utilization_cases(self) -> None:
-        common = {
-            "latency_cycles": 10,
-            "instance_count": 10,
-            "macs_per_cycle": 1,
-            "spatially_used_pes": 10,
-        }
-        self.assertEqual(_pe_utilization(mac_count=0, **common), 0)
-        self.assertEqual(_pe_utilization(mac_count=50, **common), 0.5)
-        self.assertEqual(_pe_utilization(mac_count=100, **common), 1)
-        with self.assertRaisesRegex(ValueError, "exceeds 1"):
-            _pe_utilization(mac_count=101, **common)
-        with self.assertRaisesRegex(ValueError, "uses 11 PEs"):
-            _pe_utilization(mac_count=100, **{**common, "spatially_used_pes": 11})
-        with self.assertRaisesRegex(ValueError, "macs_per_cycle"):
-            _pe_utilization(mac_count=100, **{**common, "macs_per_cycle": 0})
-
     def test_memory_utilization_cases(self) -> None:
         common = {
             "latency_cycles": 1000,
@@ -103,6 +91,31 @@ class UtilizationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "accesses_per_cycle"):
             _memory_utilization(accesses=1, **{**common, "accesses_per_cycle": 0})
 
+    def test_memory_power_normalizes_accesses_to_selected_width(self) -> None:
+        component = ImplementedComponent(
+            abstract_component=AbstractComponent(
+                name="gb",
+                type="global_buffer",
+                required_bandwidth_bits=64,
+            ),
+            ip=IPBlock(
+                id="gb_128b",
+                type="global_buffer",
+                area=1,
+                throughput=1,
+                delay=1,
+                fmax_mhz=100,
+                bandwidth_bits=128,
+                metadata={"accesses_per_cycle": 1},
+                power_model=_model(0, 1),
+            ),
+        )
+        layer = LayerActivity("layer", 100, 0, 0, {"gb": 100})
+
+        power_w = _memory_power(component, layer, 100)
+
+        self.assertEqual(power_w, 0.5)
+
     def test_component_power_interpolation(self) -> None:
         model = _model(1.0, 3.0)
         self.assertEqual(_component_power_w(2, 0.0, model), 2.0)
@@ -111,6 +124,32 @@ class UtilizationTests(unittest.TestCase):
 
 
 class WorkloadPowerTests(unittest.TestCase):
+    def test_pe_power_uses_active_and_idle_counts_from_mapping(self) -> None:
+        profile = WorkloadActivityProfile(
+            layers=(LayerActivity("layer", 1000, 16000, 16, {}),)
+        )
+
+        result = evaluate_workload_power(
+            _implemented(_model(1, 3), pe_count=32),
+            profile,
+        )
+
+        self.assertEqual(result.power_w, 16 * 3 + 16 * 1)
+
+    def test_frequency_changes_time_but_does_not_rescale_power(self) -> None:
+        profile = WorkloadActivityProfile(
+            layers=(LayerActivity("layer", 1000, 1000, 1, {}),)
+        )
+
+        result = evaluate_workload_power(
+            _implemented(_model(0, 1), fmax_mhz=160.0),
+            profile,
+        )
+
+        self.assertAlmostEqual(result.latency_s, 1000 / 160e6)
+        self.assertAlmostEqual(result.power_w, 1.0)
+        self.assertAlmostEqual(result.energy_j, 1000 / 160e6)
+
     def test_power_includes_dram_energy_and_is_weighted_by_duration(self) -> None:
         profile = WorkloadActivityProfile(
             layers=(
