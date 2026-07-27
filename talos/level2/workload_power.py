@@ -17,7 +17,8 @@ from talos.level2.genome import (
 )
 
 
-UTILIZATION_TOLERANCE = 1e-5
+# ZigZag mixes integer cycle counts with ceil-rounded memory transfers.
+UTILIZATION_TOLERANCE = 1e-4
 MEMORY_COMPONENT_NAMES = ("rf_i1", "rf_i2", "rf_o", "gb")
 WORKLOAD_REQUIREMENTS_ERROR = (
     "Workload-aware exploration requires a workload activity profile and "

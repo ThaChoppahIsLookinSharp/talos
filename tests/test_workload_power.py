@@ -163,6 +163,7 @@ class UtilizationTests(unittest.TestCase):
             ),
             1.0,
         )
+        self.assertEqual(_memory_utilization(accesses=1000.0281, **common), 1.0)
         with self.assertRaisesRegex(ValueError, "exceeds 1"):
             _memory_utilization(accesses=1001, **common)
         with self.assertRaisesRegex(ValueError, "no physical instances"):
