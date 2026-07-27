@@ -232,9 +232,7 @@ def _evaluate_solution(
     error_message = None
     profile = problem.activity_profile
     dram_accesses = None if profile is None else profile.total_dram_accesses
-    dram_access_energy_j = (
-        None if profile is None else profile.total_dram_access_energy_j
-    )
+    dram_energy_j = None
 
     try:
         genome = problem.spec.canonicalize(genome)
@@ -244,6 +242,8 @@ def _evaluate_solution(
             component.abstract_component.name: component.ip.id
             for component in implemented.components
         }
+        if problem.dram_ip is not None:
+            selected_ips["dram"] = problem.dram_ip.id
         covered_by_pe = {
             component.abstract_component.name: component.covered_by_pe_id
             for component in implemented.components
@@ -259,6 +259,7 @@ def _evaluate_solution(
         workload_energy_j = None
         workload_latency_s = None
         operating_frequency_mhz = None
+        dram_energy_j = None
         delay = float("inf")
         throughput = 0.0
         implementation_fmax_mhz = None
@@ -270,6 +271,7 @@ def _evaluate_solution(
         workload_energy_j = result.workload_energy_j
         workload_latency_s = result.workload_latency_s
         operating_frequency_mhz = result.operating_frequency_mhz
+        dram_energy_j = result.dram_energy_j
         delay = result.delay
         throughput = result.throughput
         implementation_fmax_mhz = result.implementation_fmax_mhz
@@ -296,7 +298,7 @@ def _evaluate_solution(
         "workload_latency_s": workload_latency_s,
         "operating_frequency_mhz": operating_frequency_mhz,
         "dram_accesses": dram_accesses,
-        "dram_access_energy_j": dram_access_energy_j,
+        "dram_energy_j": dram_energy_j,
         "delay": delay,
         "throughput": throughput,
         "implementation_fmax_mhz": implementation_fmax_mhz,
@@ -325,7 +327,7 @@ def _write_solutions_csv(csv_path: Path, solutions: list[dict[str, Any]]) -> Non
         "workload_latency_s",
         "operating_frequency_mhz",
         "dram_accesses",
-        "dram_access_energy_j",
+        "dram_energy_j",
         "delay",
         "throughput",
         "implementation_fmax_mhz",

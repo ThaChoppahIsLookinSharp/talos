@@ -63,6 +63,20 @@ def _implemented(
     return ImplementedAccelerator(components=components)
 
 
+def _dram(model: PowerCharacterization | None = None) -> IPBlock:
+    return IPBlock(
+        id="dram",
+        type="dram",
+        area=0,
+        throughput=1,
+        delay=1,
+        fmax_mhz=100,
+        bandwidth_bits=512,
+        metadata={"accesses_per_cycle": 1},
+        power_model=model or _model(0, 0),
+    )
+
+
 def _composite_implemented() -> ImplementedAccelerator:
     pe_id = "pe_tile"
     rf_ids = {name: f"{name}_ip" for name in ("rf_i1", "rf_i2", "rf_o")}
@@ -174,6 +188,7 @@ class WorkloadPowerTests(unittest.TestCase):
             WorkloadActivityProfile(
                 layers=(LayerActivity("layer", 100, 1, 1, {}),)
             ),
+            _dram(),
         )
 
         self.assertEqual(result.power_w, 24)
@@ -192,6 +207,7 @@ class WorkloadPowerTests(unittest.TestCase):
                     ),
                 )
             ),
+            _dram(),
         )
 
         self.assertEqual(result.power_w, 26)
@@ -204,6 +220,7 @@ class WorkloadPowerTests(unittest.TestCase):
         result = evaluate_workload_power(
             _implemented(_model(1, 3), pe_count=32),
             profile,
+            _dram(),
         )
 
         self.assertEqual(result.power_w, 16 * 3 + 16 * 1)
@@ -216,6 +233,7 @@ class WorkloadPowerTests(unittest.TestCase):
         result = evaluate_workload_power(
             _implemented(_model(0, 1), fmax_mhz=160.0),
             profile,
+            _dram(),
         )
 
         self.assertAlmostEqual(result.latency_s, 1000 / 100e6)
@@ -227,22 +245,27 @@ class WorkloadPowerTests(unittest.TestCase):
             evaluate_workload_power(
                 _implemented(_model(0, 1), fmax_mhz=80.0),
                 profile,
+                _dram(),
             )
 
     def test_power_includes_dram_energy_and_is_weighted_by_duration(self) -> None:
         profile = WorkloadActivityProfile(
             layers=(
-                LayerActivity("active", 10, 10, 1, {}, dram_access_energy_j=4e-8),
+                LayerActivity("active", 10, 10, 1, {"dram": 5}),
                 LayerActivity("idle", 30, 0, 0, {}),
             )
         )
 
-        result = evaluate_workload_power(_implemented(_model(0, 1)), profile)
+        result = evaluate_workload_power(
+            _implemented(_model(0, 1)),
+            profile,
+            _dram(_model(0.2, 4.2)),
+        )
 
         self.assertAlmostEqual(result.latency_s, 4e-7)
-        self.assertAlmostEqual(result.energy_j, 1.4e-7)
-        self.assertAlmostEqual(result.power_w, 0.35)
-        self.assertNotAlmostEqual(result.power_w, 0.5)
+        self.assertAlmostEqual(result.dram_energy_j, 2.8e-7)
+        self.assertAlmostEqual(result.energy_j, 3.8e-7)
+        self.assertAlmostEqual(result.power_w, 0.95)
 
 
 if __name__ == "__main__":

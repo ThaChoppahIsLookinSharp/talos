@@ -44,7 +44,7 @@ SUMMARY_FIELDNAMES = [
     "workload_latency_s",
     "operating_frequency_mhz",
     "dram_accesses",
-    "dram_access_energy_j",
+    "dram_energy_j",
     "level2_delay",
     "level2_throughput",
     "implementation_fmax_mhz",
@@ -241,6 +241,23 @@ def main() -> int:
         return 2
 
     pool = IPPool.from_yaml(ip_pool_path)
+    dram_ips = pool.by_type("dram")
+    if len(dram_ips) != 1:
+        print(
+            "ERROR: the IP pool must contain exactly one characterized DRAM.",
+            file=sys.stderr,
+        )
+        return 2
+    dram_ip = dram_ips[0]
+    dram_accesses_per_cycle = float(
+        (dram_ip.metadata or {})["accesses_per_cycle"]
+    )
+    if dram_ip.bandwidth_bits is None or dram_ip.power_model is None:
+        print(
+            "ERROR: DRAM requires bandwidth_bits and power_model.",
+            file=sys.stderr,
+        )
+        return 2
     power_required = (
         any(name in args.level2_objectives for name in ("energy", "power"))
         or constraints.max_power_w is not None
@@ -252,6 +269,9 @@ def main() -> int:
             workdir=str(results_dir / "level1_profiles"),
             lpf_limit=1,
             nb_spatial_mappings_generated=1,
+            dram_bandwidth_bits=dram_ip.bandwidth_bits,
+            dram_accesses_per_cycle=dram_accesses_per_cycle,
+            dram_power_model=dram_ip.power_model,
         )
         if power_required
         else None
@@ -272,6 +292,9 @@ def main() -> int:
             zigzag_lpf_limit=1,
             zigzag_spatial_mappings=1,
             constraints=constraints,
+            dram_bandwidth_bits=dram_ip.bandwidth_bits,
+            dram_accesses_per_cycle=dram_accesses_per_cycle,
+            dram_power_model=dram_ip.power_model,
         )
     except ModuleNotFoundError as exc:
         missing = exc.name or str(exc)
@@ -660,8 +683,8 @@ def build_summary_rows(
                     "",
                 ),
                 "dram_accesses": solution.get("dram_accesses", ""),
-                "dram_access_energy_j": solution.get(
-                    "dram_access_energy_j",
+                "dram_energy_j": solution.get(
+                    "dram_energy_j",
                     "",
                 ),
                 "level2_delay": solution.get("delay", ""),
@@ -731,7 +754,7 @@ def print_first_solution(solution: dict[str, Any]) -> None:
     print(f"    workload_latency_s: {solution.get('workload_latency_s')}")
     print(f"    operating_frequency_mhz: {solution.get('operating_frequency_mhz')}")
     print(f"    dram_accesses: {solution.get('dram_accesses')}")
-    print(f"    dram_access_energy_j: {solution.get('dram_access_energy_j')}")
+    print(f"    dram_energy_j: {solution.get('dram_energy_j')}")
     print(f"    delay: {solution.get('delay')}")
     print(f"    throughput: {solution.get('throughput')}")
     print(f"    fmax_mhz: {solution.get('implementation_fmax_mhz')}")

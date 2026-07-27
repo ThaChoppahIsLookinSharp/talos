@@ -64,6 +64,20 @@ def power_model(
     )
 
 
+def dram_ip() -> IPBlock:
+    return IPBlock(
+        id="dram",
+        type="dram",
+        area=0,
+        throughput=1,
+        delay=20,
+        fmax_mhz=500,
+        bandwidth_bits=512,
+        metadata={"accesses_per_cycle": 1},
+        power_model=power_model(),
+    )
+
+
 class Level2ExhaustiveRunnerTests(unittest.TestCase):
     def test_default_level2_objectives(self) -> None:
         self.assertEqual(
@@ -104,7 +118,7 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
             solution["workload_energy_j"],
         )
         self.assertEqual(solution["dram_accesses"], 0)
-        self.assertEqual(solution["dram_access_energy_j"], 0)
+        self.assertEqual(solution["dram_energy_j"], 4e-8)
         self.assertTrue(
             all(
                 row["area"] <= 0.4
@@ -252,7 +266,10 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
             components=[AbstractComponent(name="pe_array", type="pe")],
         )
         uncharacterized_pool = IPPool(
-            [IPBlock(id="pe", type="pe", area=1, throughput=1, delay=1)]
+            [
+                IPBlock(id="pe", type="pe", area=1, throughput=1, delay=1),
+                dram_ip(),
+            ]
         )
         with self.assertRaisesRegex(ValueError, "Activity profile is missing"):
             Level2PymooProblem(
@@ -309,7 +326,11 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
             Level2PymooProblem(
                 accelerator=accelerator,
                 ip_pool=IPPool(
-                    [ip("a", power_model()), ip("b", power_model(frequency=400))]
+                    [
+                        ip("a", power_model()),
+                        ip("b", power_model(frequency=400)),
+                        dram_ip(),
+                    ]
                 ),
                 objective_names=["power"],
                 activity_profile=activity_profile(),
@@ -320,6 +341,7 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
                 [
                     ip("too_slow", power_model(), fmax_mhz=400),
                     ip("fast_enough", power_model()),
+                    dram_ip(),
                 ]
             ),
             objective_names=["power"],
@@ -329,7 +351,11 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
             Level2PymooProblem(
                 accelerator=accelerator,
                 ip_pool=IPPool(
-                    [ip("a", power_model()), ip("b", power_model(voltage=0.9))]
+                    [
+                        ip("a", power_model()),
+                        ip("b", power_model(voltage=0.9)),
+                        dram_ip(),
+                    ]
                 ),
                 objective_names=["power"],
                 activity_profile=activity_profile(),

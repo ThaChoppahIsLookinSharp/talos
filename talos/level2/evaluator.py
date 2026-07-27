@@ -5,6 +5,7 @@ from typing import Iterable
 
 from talos.constraints import UserConstraints
 from talos.evaluation.workload_activity import WorkloadActivityProfile
+from talos.ip.ip_characterization import IPBlock
 from talos.level2.genome import (
     ImplementedAccelerator,
     ImplementedComponent,
@@ -18,6 +19,7 @@ class Level2EvaluationResult:
     area: float
     power: float | None
     workload_energy_j: float | None
+    dram_energy_j: float | None
     workload_latency_s: float | None
     operating_frequency_mhz: float | None
     delay: float
@@ -33,9 +35,11 @@ class Level2Evaluator:
         self,
         constraints: UserConstraints | None = None,
         activity_profile: WorkloadActivityProfile | None = None,
+        dram_ip: IPBlock | None = None,
     ) -> None:
         self.constraints = constraints
         self.activity_profile = activity_profile
+        self.dram_ip = dram_ip
 
     def evaluate(self, implemented: ImplementedAccelerator) -> Level2EvaluationResult:
         try:
@@ -57,10 +61,11 @@ class Level2Evaluator:
             if self.activity_profile is not None and all(
                 component.ip.power_model is not None
                 for component in implemented.components
-            ):
+            ) and self.dram_ip is not None:
                 power_result = evaluate_workload_power(
                     implemented,
                     self.activity_profile,
+                    self.dram_ip,
                 )
             power = None if power_result is None else power_result.power_w
             constraint_violations = self._constraint_violations(
@@ -73,6 +78,9 @@ class Level2Evaluator:
                 power=power,
                 workload_energy_j=(
                     None if power_result is None else power_result.energy_j
+                ),
+                dram_energy_j=(
+                    None if power_result is None else power_result.dram_energy_j
                 ),
                 workload_latency_s=(
                     None if power_result is None else power_result.latency_s
@@ -94,6 +102,7 @@ class Level2Evaluator:
                 area=float("inf"),
                 power=None,
                 workload_energy_j=None,
+                dram_energy_j=None,
                 workload_latency_s=None,
                 operating_frequency_mhz=None,
                 delay=float("inf"),

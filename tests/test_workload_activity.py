@@ -10,12 +10,15 @@ from unittest.mock import patch
 from zigzag.hardware.architecture.memory_port import DataDirection
 from zigzag.mapping.data_movement import MemoryAccesses
 
-from talos.architecture.genome import ArchitectureConfig
+from talos.architecture.genome import ArchitectureConfig, default_genome, decode_genome
 from talos.evaluation.workload_activity import (
     LayerActivity,
     extract_workload_activity_profile,
 )
-from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
+from talos.evaluation.zigzag_evaluator import (
+    ZigZagEvaluator,
+)
+from talos.ip import PowerCharacterization
 
 
 class _MemoryOperandLinks:
@@ -50,6 +53,30 @@ def _accesses(
 
 
 class WorkloadActivityAdapterTests(unittest.TestCase):
+    def test_dram_characterization_derives_access_energy_from_power(self) -> None:
+        model = PowerCharacterization(
+            source="test",
+            activity_method="access_rate",
+            reference_frequency_mhz=100,
+            p_idle_w=1,
+            p_active_w=3,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            evaluator = ZigZagEvaluator(
+                workload="unused.onnx",
+                workdir=tmp,
+                dram_bandwidth_bits=256,
+                dram_accesses_per_cycle=2,
+                dram_power_model=model,
+            )
+            config = decode_genome(default_genome())
+            dram = evaluator._build_accelerator(config)["memories"]["dram"]
+
+        self.assertEqual(dram["ports"][0]["bandwidth_max"], 256)
+        self.assertEqual(dram["r_cost"], 10_000)
+        self.assertEqual(dram["w_cost"], 10_000)
+        self.assertEqual(evaluator._dram_idle_energy_pj(100), 1_000_000)
+
     def test_area_proxy_counts_three_rfs_and_replicated_global_buffers(self) -> None:
         evaluator = ZigZagEvaluator.__new__(ZigZagEvaluator)
         base = {
@@ -95,7 +122,6 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
             {"spatially_used_pes": -1},
             {"memory_accesses": {"": 0}},
             {"memory_accesses": {"gb": -1}},
-            {"dram_access_energy_j": -1},
         ):
             with self.subTest(override=override):
                 with self.assertRaises(ValueError):
@@ -163,12 +189,9 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
                 "dram": 97.0,
             },
         )
-        # 54 reads * 1000 pJ + 43 writes * 2000 pJ.
-        self.assertAlmostEqual(layer.dram_access_energy_j, 140_000e-12)
         self.assertEqual(profile.total_latency_cycles, 100)
         self.assertEqual(profile.total_mac_count, 800)
         self.assertEqual(profile.total_dram_accesses, 97)
-        self.assertAlmostEqual(profile.total_dram_access_energy_j, 140_000e-12)
 
 
 if __name__ == "__main__":

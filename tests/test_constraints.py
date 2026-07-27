@@ -36,7 +36,7 @@ from talos.constraints import (
 from talos.evaluation.workload_activity import LayerActivity, WorkloadActivityProfile
 from talos.evaluation.zigzag_evaluator import EvaluationResult
 from talos.ga.pymoo_runner import TalosPymooProblem, _build_nsga2
-from talos.ip import IPBlock, IPPool
+from talos.ip import IPBlock, IPPool, PowerCharacterization
 from talos.level2 import Level2Evaluator
 from talos.level2.genome import ImplementedAccelerator, ImplementedComponent
 from talos.level2.problem import Level2PymooProblem
@@ -236,7 +236,7 @@ class UserConstraintsTests(unittest.TestCase):
                     "workload_latency_s": 20e-6,
                     "operating_frequency_mhz": 100.0,
                     "dram_accesses": 1000,
-                    "dram_access_energy_j": 1e-6,
+                    "dram_energy_j": 1e-6,
                     "covered_by_pe": {"rf_i1": "pe_tile"},
                     "constraint_violations": [],
                 }
@@ -251,7 +251,7 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertIn("workload_energy_j", SUMMARY_FIELDNAMES)
         self.assertIn("operating_frequency_mhz", SUMMARY_FIELDNAMES)
         self.assertIn("dram_accesses", SUMMARY_FIELDNAMES)
-        self.assertIn("dram_access_energy_j", SUMMARY_FIELDNAMES)
+        self.assertIn("dram_energy_j", SUMMARY_FIELDNAMES)
         self.assertIn("covered_by_pe", SUMMARY_FIELDNAMES)
         self.assertNotIn("level1_area", SUMMARY_FIELDNAMES)
         self.assertTrue(rows[0]["constraints_satisfied"])
@@ -261,7 +261,7 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertEqual(rows[0]["level2_power"], 0.1)
         self.assertEqual(rows[0]["workload_energy_j"], 2e-6)
         self.assertEqual(rows[0]["dram_accesses"], 1000)
-        self.assertEqual(rows[0]["dram_access_energy_j"], 1e-6)
+        self.assertEqual(rows[0]["dram_energy_j"], 1e-6)
         self.assertEqual(rows[0]["covered_by_pe"], {"rf_i1": "pe_tile"})
 
     def test_full_flow_summary_reports_base_level1_metrics(self) -> None:
@@ -498,6 +498,26 @@ class UserConstraintsTests(unittest.TestCase):
             F=np.ones((1, 1)),
             talos=SimpleNamespace(csv_path=None),
         )
+        dram = IPBlock(
+            id="dram",
+            type="dram",
+            area=0,
+            throughput=1,
+            delay=1,
+            fmax_mhz=500,
+            bandwidth_bits=512,
+            metadata={"accesses_per_cycle": 1},
+            power_model=PowerCharacterization(
+                source="test",
+                activity_method="access_rate",
+                reference_frequency_mhz=500,
+                p_idle_w=0.02,
+                p_active_w=4.5,
+            ),
+        )
+        pool = SimpleNamespace(
+            by_type=lambda ip_type: [dram] if ip_type == "dram" else []
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -540,7 +560,7 @@ class UserConstraintsTests(unittest.TestCase):
                         "examples.full_flow_example.parse_args",
                         return_value=args,
                     ),
-                    patch("talos.ip.IPPool.from_yaml", return_value=object()),
+                    patch("talos.ip.IPPool.from_yaml", return_value=pool),
                     patch(
                         "talos.ga.pymoo_runner.run_nsga2_pymoo",
                         return_value=level1_result,

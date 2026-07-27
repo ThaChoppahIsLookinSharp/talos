@@ -7,9 +7,6 @@ from typing import Any
 from zigzag.hardware.architecture.memory_port import DataDirection
 
 
-PICOJOULE_TO_JOULE = 1e-12
-
-
 @dataclass(frozen=True)
 class LayerActivity:
     layer_id: str
@@ -17,7 +14,6 @@ class LayerActivity:
     mac_count: float
     spatially_used_pes: int
     memory_accesses: dict[str, float]
-    dram_access_energy_j: float = 0.0
 
     def __post_init__(self) -> None:
         if not self.layer_id.strip():
@@ -37,13 +33,6 @@ class LayerActivity:
                 raise ValueError(
                     f"LayerActivity accesses for {name!r} must be finite and >= 0."
                 )
-        if (
-            not math.isfinite(self.dram_access_energy_j)
-            or self.dram_access_energy_j < 0
-        ):
-            raise ValueError(
-                "LayerActivity dram_access_energy_j must be finite and >= 0."
-            )
 
 
 @dataclass(frozen=True)
@@ -61,11 +50,6 @@ class WorkloadActivityProfile:
     @property
     def total_dram_accesses(self) -> float:
         return sum(layer.memory_accesses.get("dram", 0.0) for layer in self.layers)
-
-    @property
-    def total_dram_access_energy_j(self) -> float:
-        return sum(layer.dram_access_energy_j for layer in self.layers)
-
 
 _MEMORY_BINDINGS = {
     ("I1", "rf_i1"): "rf_i1",
@@ -94,7 +78,6 @@ def _unwrap_cme(value: Any) -> Any:
 def _extract_layer_activity(cme: Any) -> LayerActivity:
     layer = cme.layer
     memory_accesses: dict[str, float] = {}
-    dram_access_energy_j = 0.0
 
     for layer_operand, accesses_per_level in cme.memory_word_access.items():
         memory_operand = cme.memory_operand_links.layer_to_mem_op(layer_operand)
@@ -108,7 +91,6 @@ def _extract_layer_activity(cme: Any) -> LayerActivity:
             )
             if memory_name.lower() == "dram":
                 target = "dram"
-                dram_access_energy_j += _dram_access_energy_j(level, accesses)
             else:
                 target = _MEMORY_BINDINGS.get((str(memory_operand), memory_name))
                 if target is None:
@@ -125,27 +107,7 @@ def _extract_layer_activity(cme: Any) -> LayerActivity:
         mac_count=float(layer.total_mac_count),
         spatially_used_pes=_spatially_used_pes(cme),
         memory_accesses=memory_accesses,
-        dram_access_energy_j=dram_access_energy_j,
     )
-
-
-def _dram_access_energy_j(level: Any, accesses: Any) -> float:
-    read_energy_pj = float(level.read_energy)
-    write_energy_pj = float(level.write_energy)
-    if any(
-        not math.isfinite(value) or value < 0
-        for value in (read_energy_pj, write_energy_pj)
-    ):
-        raise ValueError("ZigZag DRAM read/write energy must be finite and >= 0.")
-    reads = accesses.get(DataDirection.RD_OUT_TO_LOW) + accesses.get(
-        DataDirection.RD_OUT_TO_HIGH
-    )
-    writes = accesses.get(DataDirection.WR_IN_BY_LOW) + accesses.get(
-        DataDirection.WR_IN_BY_HIGH
-    )
-    return float(
-        reads * read_energy_pj + writes * write_energy_pj
-    ) * PICOJOULE_TO_JOULE
 
 
 def _latency_cycles(cme: Any) -> float:

@@ -5,7 +5,7 @@ import math
 from typing import Any
 
 from talos.evaluation.workload_activity import LayerActivity, WorkloadActivityProfile
-from talos.ip.ip_characterization import PowerCharacterization
+from talos.ip.ip_characterization import IPBlock, PowerCharacterization
 from talos.level2.genome import (
     ImplementedAccelerator,
     ImplementedComponent,
@@ -14,6 +14,7 @@ from talos.level2.genome import (
 
 
 UTILIZATION_TOLERANCE = 1e-5
+DRAM_UTILIZATION_TOLERANCE = 0.01
 MEMORY_COMPONENT_NAMES = ("rf_i1", "rf_i2", "rf_o", "gb")
 POWER_REQUIREMENTS_ERROR = (
     "Workload energy/power exploration requires a workload activity profile and "
@@ -25,6 +26,7 @@ POWER_REQUIREMENTS_ERROR = (
 class WorkloadPowerResult:
     power_w: float
     energy_j: float
+    dram_energy_j: float
     latency_s: float
     operating_frequency_mhz: float
 
@@ -32,6 +34,7 @@ class WorkloadPowerResult:
 def evaluate_workload_power(
     implemented: ImplementedAccelerator,
     profile: WorkloadActivityProfile,
+    dram_ip: IPBlock,
 ) -> WorkloadPowerResult:
     components = {
         component.abstract_component.name: component
@@ -51,9 +54,11 @@ def evaluate_workload_power(
     physical_components(implemented.components)
 
     operating_frequency_mhz = _validate_selected_characterizations(
-        implemented.components
+        implemented.components,
+        dram_ip,
     )
-    energy_j = profile.total_dram_access_energy_j
+    energy_j = 0.0
+    dram_energy_j = 0.0
     latency_s = 0.0
 
     for layer in profile.layers:
@@ -64,10 +69,13 @@ def evaluate_workload_power(
                 layer,
                 layer.memory_accesses.get(name, 0.0),
             )
+        dram_power_w = _dram_power(dram_ip, layer)
+        layer_power_w += dram_power_w
         layer_latency_s = layer.latency_cycles / (
             operating_frequency_mhz * 1_000_000.0
         )
         energy_j += layer_power_w * layer_latency_s
+        dram_energy_j += dram_power_w * layer_latency_s
         latency_s += layer_latency_s
 
     if latency_s <= 0:
@@ -75,6 +83,7 @@ def evaluate_workload_power(
     return WorkloadPowerResult(
         power_w=energy_j / latency_s,
         energy_j=energy_j,
+        dram_energy_j=dram_energy_j,
         latency_s=latency_s,
         operating_frequency_mhz=operating_frequency_mhz,
     )
@@ -83,6 +92,7 @@ def evaluate_workload_power(
 def validate_power_aware_exploration(
     spec: Any,
     profile: WorkloadActivityProfile | None,
+    dram_ip: IPBlock,
 ) -> None:
     if profile is None:
         raise ValueError(f"{POWER_REQUIREMENTS_ERROR} Activity profile is missing.")
@@ -107,6 +117,17 @@ def validate_power_aware_exploration(
                     "use included_rf_power_mode='parent_idle_baseline'."
                 )
 
+    if dram_ip.power_model is None:
+        raise ValueError(
+            f"{POWER_REQUIREMENTS_ERROR} DRAM IP {dram_ip.id!r} has no power_model."
+        )
+    if dram_ip.bandwidth_bits is None or dram_ip.bandwidth_bits <= 0:
+        raise ValueError(
+            f"{POWER_REQUIREMENTS_ERROR} DRAM IP {dram_ip.id!r} requires "
+            "positive bandwidth_bits."
+        )
+    _positive_metadata(dram_ip.metadata, "accesses_per_cycle", dram_ip.id)
+    characterized.append((dram_ip.id, dram_ip.power_model, dram_ip.fmax_mhz))
     _validate_characterizations(characterized, require_operable=False)
 
     pe_counts = [
@@ -181,6 +202,26 @@ def _memory_power(
     return _component_power_w(count, utilization, _power_model(component))
 
 
+def _dram_power(ip: IPBlock, layer: LayerActivity) -> float:
+    model = ip.power_model
+    if model is None:
+        raise ValueError(f"DRAM IP {ip.id!r} has no power_model.")
+    utilization = _memory_utilization(
+        accesses=layer.memory_accesses.get("dram", 0.0),
+        latency_cycles=layer.latency_cycles,
+        instance_count=1,
+        accesses_per_cycle=_positive_metadata(
+            ip.metadata,
+            "accesses_per_cycle",
+            ip.id,
+        ),
+        memory_name="dram",
+        layer_id=layer.layer_id,
+        tolerance=DRAM_UTILIZATION_TOLERANCE,
+    )
+    return _component_power_w(1, utilization, model)
+
+
 def _memory_utilization(
     *,
     accesses: float,
@@ -189,6 +230,7 @@ def _memory_utilization(
     accesses_per_cycle: float,
     memory_name: str = "memory",
     layer_id: str = "",
+    tolerance: float = UTILIZATION_TOLERANCE,
 ) -> float:
     if accesses_per_cycle <= 0 or not math.isfinite(accesses_per_cycle):
         raise ValueError("accesses_per_cycle must be finite and > 0.")
@@ -206,13 +248,18 @@ def _memory_utilization(
     return _validate_utilization(
         utilization,
         f"Memory {memory_name!r} utilization for layer {layer_id!r}",
+        tolerance,
     )
 
 
-def _validate_utilization(value: float, label: str) -> float:
+def _validate_utilization(
+    value: float,
+    label: str,
+    tolerance: float = UTILIZATION_TOLERANCE,
+) -> float:
     if not math.isfinite(value) or value < 0:
         raise ValueError(f"{label} must be finite and >= 0.")
-    if value > 1.0 + UTILIZATION_TOLERANCE:
+    if value > 1.0 + tolerance:
         raise ValueError(f"{label} exceeds 1: {value}.")
     return min(value, 1.0)
 
@@ -252,11 +299,15 @@ def _positive_metadata(
 
 def _validate_selected_characterizations(
     components: list[ImplementedComponent],
+    dram_ip: IPBlock,
 ) -> float:
     characterized = [
         (component.ip.id, _power_model(component), component.ip.fmax_mhz)
         for component in components
     ]
+    if dram_ip.power_model is None:
+        raise ValueError(f"DRAM IP {dram_ip.id!r} has no power_model.")
+    characterized.append((dram_ip.id, dram_ip.power_model, dram_ip.fmax_mhz))
     return _validate_characterizations(characterized)
 
 

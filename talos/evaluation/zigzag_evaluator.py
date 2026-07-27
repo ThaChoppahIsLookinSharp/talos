@@ -5,17 +5,34 @@ import contextlib
 from dataclasses import dataclass
 import io
 import logging
-from math import prod
+from math import isfinite, prod
 import os
 from pathlib import Path
 import pickle
 from typing import Any
 import yaml
 
-from talos.architecture.genome import ArchitectureConfig, decode_genome
+from talos.architecture.genome import (
+    DEFAULT_DRAM_BW_BITS,
+    ArchitectureConfig,
+    decode_genome,
+)
 from talos.evaluation.workload_activity import (
     WorkloadActivityProfile,
     extract_workload_activity_profile,
+)
+from talos.ip.ip_characterization import PowerCharacterization
+
+DEFAULT_DRAM_ACCESSES_PER_CYCLE = 1.0
+DEFAULT_DRAM_POWER_MODEL = PowerCharacterization(
+    source="synthetic",
+    activity_method="access_rate",
+    reference_frequency_mhz=500.0,
+    p_idle_w=0.02,
+    p_active_w=4.5,
+    voltage_v=1.0,
+    temperature_c=25.0,
+    corner="tt",
 )
 
 
@@ -47,7 +64,18 @@ class ZigZagEvaluator:
         debug: bool = False,
         lpf_limit: int = 6,
         nb_spatial_mappings_generated: int = 3,
+        dram_bandwidth_bits: int = DEFAULT_DRAM_BW_BITS,
+        dram_accesses_per_cycle: float = DEFAULT_DRAM_ACCESSES_PER_CYCLE,
+        dram_power_model: PowerCharacterization = DEFAULT_DRAM_POWER_MODEL,
     ) -> None:
+        if dram_bandwidth_bits <= 0:
+            raise ValueError("DRAM bandwidth must be > 0.")
+        if not isfinite(dram_accesses_per_cycle) or dram_accesses_per_cycle <= 0:
+            raise ValueError("DRAM accesses_per_cycle must be finite and > 0.")
+        if not isinstance(dram_power_model, PowerCharacterization):
+            raise ValueError(
+                "DRAM power_model must be a PowerCharacterization."
+            )
         self.workload = workload
         self.mapping = mapping if mapping is not None else self._default_mapping()
         self.opt = opt
@@ -59,6 +87,9 @@ class ZigZagEvaluator:
         self.debug = debug
         self.lpf_limit = lpf_limit
         self.nb_spatial_mappings_generated = nb_spatial_mappings_generated
+        self.dram_bandwidth_bits = dram_bandwidth_bits
+        self.dram_accesses_per_cycle = dram_accesses_per_cycle
+        self.dram_power_model = dram_power_model
         self.mapping_yaml_path = self._write_mapping_yaml(self.mapping)
         self._evaluation_counter = 0
 
@@ -75,6 +106,7 @@ class ZigZagEvaluator:
                 with self._quiet_zigzag():
                     energy, latency, cme = self._run_zigzag(accelerator_yaml_path)
 
+            energy += self._dram_idle_energy_pj(latency)
             area = self._extract_area(cme, cfg)
 
             return EvaluationResult(
@@ -175,6 +207,7 @@ class ZigZagEvaluator:
         }
 
     def _build_accelerator(self, cfg: ArchitectureConfig) -> dict[str, Any]:
+        dram_energy_pj_per_access = self._dram_dynamic_energy_pj_per_access()
         accelerator = {
             "name": "talos_candidate",
             "operational_array": {
@@ -268,8 +301,8 @@ class ZigZagEvaluator:
                 # It is not part of the on-chip accelerator area or Level-2 IPs.
                 "dram": {
                     "size": 10**12,
-                    "r_cost": 1000.0,
-                    "w_cost": 1000.0,
+                    "r_cost": dram_energy_pj_per_access,
+                    "w_cost": dram_energy_pj_per_access,
                     "area": 0.0,
                     "latency": 1,
                     "mem_type": "dram",
@@ -278,7 +311,7 @@ class ZigZagEvaluator:
                     "ports": [
                         self._rw_port(
                             "rw_port_1",
-                            cfg.dram_bw_bits,
+                            self.dram_bandwidth_bits,
                             [
                                 "I1, tl", "I1, fh",
                                 "I2, tl", "I2, fh",
@@ -292,6 +325,22 @@ class ZigZagEvaluator:
         }
 
         return accelerator
+
+    def _dram_dynamic_energy_pj_per_access(self) -> float:
+        model = self.dram_power_model
+        accesses_per_second = (
+            model.reference_frequency_mhz
+            * 1_000_000.0
+            * self.dram_accesses_per_cycle
+        )
+        return (model.p_active_w - model.p_idle_w) / accesses_per_second * 1e12
+
+    def _dram_idle_energy_pj(self, latency_cycles: float) -> float:
+        model = self.dram_power_model
+        latency_s = latency_cycles / (
+            model.reference_frequency_mhz * 1_000_000.0
+        )
+        return model.p_idle_w * latency_s * 1e12
 
     def _default_mapping(self) -> list[dict[str, Any]]:
         return [

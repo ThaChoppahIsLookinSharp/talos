@@ -48,13 +48,33 @@ class Level2PymooProblem(ElementwiseProblem):
         self.activity_profile = activity_profile
         self._validate_objective_names(self.objective_names)
         self.spec = Level2GenomeSpec.from_accelerator_and_pool(accelerator, ip_pool)
-        if any(name in self.objective_names for name in ("energy", "power")) or (
+        dram_ips = ip_pool.by_type("dram")
+        power_required = any(
+            name in self.objective_names for name in ("energy", "power")
+        ) or (
             constraints is not None and constraints.max_power_w is not None
-        ):
-            validate_power_aware_exploration(self.spec, activity_profile)
+        )
+        if power_required and activity_profile is None:
+            raise ValueError(
+                "Activity profile is missing; workload energy/power exploration "
+                "requires an activity profile."
+            )
+        if power_required and len(dram_ips) != 1:
+            raise ValueError(
+                "Power-aware Level 2 requires exactly one characterized DRAM IP."
+            )
+        dram_ip = dram_ips[0] if len(dram_ips) == 1 else None
+        if power_required:
+            validate_power_aware_exploration(
+                self.spec,
+                activity_profile,
+                dram_ip,
+            )
+        self.dram_ip = dram_ip
         self.evaluator = Level2Evaluator(
             constraints=constraints,
             activity_profile=activity_profile,
+            dram_ip=dram_ip,
         )
 
         bounds = self.spec.gene_bounds()
