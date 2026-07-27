@@ -148,6 +148,10 @@ increases timing margin; TALOS does not automatically run that candidate faster.
 For workload-aware exploration, TALOS reuses the mapping selected by ZigZag. For each layer it extracts the latency, spatially used PEs, and physical accesses at every memory level. PE power directly distinguishes mapped active PEs from the remaining idle PEs. On-chip memory and DRAM power are interpolated from access utilization:
 
 ```text
+workload_cycles_per_inference = Σ layer_cycles_mapping
+workload_latency_s = workload_cycles_per_inference / (reference_frequency_mhz × 1e6)
+workload_throughput_ips = 1 / workload_latency_s
+
 P_PE = active_PEs × p_active_w + idle_PEs × p_idle_w
 P_memory = instances × (p_idle_w + utilization × (p_active_w - p_idle_w))
 u_DRAM = DRAM_accesses / (layer_cycles × accesses_per_cycle)
@@ -171,7 +175,9 @@ E_dynamic_per_access =
 The idle term is then integrated over workload latency, so Level 1 and Level 2
 use the same characterized point.
 
-Memory accesses are normalized from the abstract Level 1 port width to the selected IP width. All selected IPs operate at their common `reference_frequency_mhz`, so workload time, energy, and inferences per second use the same characterized point. Power values are used exactly as characterized, without frequency scaling. Every selected IP must have `fmax_mhz >= reference_frequency_mhz`; `fmax_mhz` is otherwise only a capability metric and feasibility filter.
+Memory accesses are normalized from the abstract Level 1 port width to the selected IP width. Every valid combination uses one common characterized `reference_frequency_mhz` and `reference_voltage_v`. Power values are used exactly as characterized, without frequency scaling or interpolation. `physical_fmax_mhz` is the minimum selected-IP `fmax_mhz`; it must meet the reference frequency but never becomes the operating frequency. `physical_critical_delay` and `timing_margin_mhz = physical_fmax_mhz - reference_frequency_mhz` are reported separately.
+
+Level 2 rejects a combination when a selected IP is characterized at an incompatible operating point, misses the reference frequency, cannot provide the mapped PE MACs/cycle, has incompatible operand precision, or cannot sustain the mapped memory accesses/cycle. It preserves the ZigZag cycles rather than inserting stalls or remapping.
 
 For each layer, Level 2 also checks that mapped MACs/cycle fit the active PEs'
 `macs_per_cycle`, that PE input precision is compatible, and that normalized

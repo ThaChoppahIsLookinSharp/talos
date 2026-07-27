@@ -143,6 +143,7 @@ class UserConstraintsTests(unittest.TestCase):
 
         problem._evaluate(np.zeros(GENOME_LENGTH), out)
 
+        self.assertEqual(problem.zigzag_mapping_objective, "latency")
         self.assertEqual(out["G"], [5.0])
 
     def test_level1_nsga2_keeps_integer_unique_genomes(self) -> None:
@@ -296,7 +297,7 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertEqual(rows[0]["level1_latency"], 10.0)
         self.assertEqual(rows[0]["level1_energy"], 20.0)
         self.assertEqual(rows[0]["level1_area_proxy"], 30.0)
-        self.assertEqual(rows[0]["inferences_per_second"], "")
+        self.assertEqual(rows[0]["workload_throughput_ips"], "")
 
     def test_level1_selection_skips_physically_infeasible_candidates(self) -> None:
         pool = IPPool.from_yaml(SYNTHETIC_POOL_PATH)

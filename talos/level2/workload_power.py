@@ -205,6 +205,8 @@ def _memory_power(
     layer: LayerActivity,
     accesses: float,
 ) -> float:
+    # ponytail: ZigZag profile is aggregate per level; preserve read/write/port
+    # demand in the adapter before adding directional shared-port validation.
     count = component.abstract_component.count
     source_width_bits = component.abstract_component.required_bandwidth_bits
     selected_width_bits = component.ip.bandwidth_bits

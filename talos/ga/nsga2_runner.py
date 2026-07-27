@@ -122,6 +122,7 @@ def run_nsga2(
         seed=seed,
         num_of_generations=num_of_generations,
         num_of_individuals=num_of_individuals,
+        zigzag_mapping_objective=zigzag_mapping_objective,
     )
 
 
@@ -150,6 +151,7 @@ def _write_results_csv(
         "seed",
         "num_of_generations",
         "num_of_individuals",
+        "zigzag_mapping_objective",
         "latency",
         "energy",
         "area",
@@ -177,6 +179,9 @@ def _write_results_csv(
                 "seed": seed,
                 "num_of_generations": num_of_generations,
                 "num_of_individuals": num_of_individuals,
+                "zigzag_mapping_objective": mapping_objective_for_level1(
+                    objective_names
+                ),
                 "latency": result.latency,
                 "energy": result.energy,
                 "area": result.area,

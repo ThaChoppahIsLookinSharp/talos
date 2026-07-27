@@ -41,6 +41,12 @@ def _implemented(
     pe_count: int = 1,
 ) -> ImplementedAccelerator:
     components: list[ImplementedComponent] = []
+    memory_model = _model(
+        0,
+        0,
+        frequency_mhz=pe_model.reference_frequency_mhz,
+        voltage_v=pe_model.voltage_v or 1.0,
+    )
     for name, ip_type, count, metadata, model in (
         (
             "pe_array",
@@ -241,11 +247,14 @@ class WorkloadPowerTests(unittest.TestCase):
 
     def test_reference_frequency_sets_time_and_fmax_only_checks_viability(self) -> None:
         profile = WorkloadActivityProfile(
-            layers=(LayerActivity("layer", 1000, 1000, 1, {}),)
+            layers=(LayerActivity("layer", 2_000_000, 2_000_000, 1, {}),)
         )
 
         result = evaluate_workload_power(
-            _implemented(_model(0, 1), fmax_mhz=160.0),
+            _implemented(
+                _model(0, 1, frequency_mhz=200.0),
+                fmax_mhz=300.0,
+            ),
             profile,
             _dram(),
         )

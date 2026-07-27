@@ -319,8 +319,7 @@ class ZigZagEvaluator:
                     ],
                     "served_dimensions": cfg.gb_served_dims,
                 },
-                # DRAM stays in the ZigZag YAML only to model off-chip accesses.
-                # It is not part of the on-chip accelerator area or Level-2 IPs.
+                # DRAM is a fixed platform IP, not an on-chip Level-2 gene.
                 "dram": {
                     "size": 10**12,
                     "r_cost": dram_energy_pj_per_access,

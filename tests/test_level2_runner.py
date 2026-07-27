@@ -152,6 +152,17 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
                 for row in result.solutions
             )
         )
+        self.assertEqual(solution["workload_cycles_per_inference"], 1000)
+        self.assertEqual(solution["workload_latency_s"], 2e-6)
+        self.assertEqual(solution["workload_throughput_ips"], 500_000)
+        self.assertEqual(
+            solution["timing_margin_mhz"],
+            solution["physical_fmax_mhz"] - solution["reference_frequency_mhz"],
+        )
+        self.assertEqual(
+            {row["workload_latency_s"] for row in result.solutions},
+            {2e-6},
+        )
         self.assertEqual(solution["strategy"], "exhaustive")
 
     def test_exhaustive_runner_respects_constraints(self) -> None:
@@ -327,7 +338,13 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
     def test_preflight_leaves_operating_point_checks_to_each_candidate(self) -> None:
         accelerator = AbstractAccelerator(
             name="a",
-            components=[AbstractComponent(name="pe_array", type="pe")],
+            components=[
+                AbstractComponent(name="pe_array", type="pe"),
+                AbstractComponent(name="rf_i1", type="register_file"),
+                AbstractComponent(name="rf_i2", type="register_file"),
+                AbstractComponent(name="rf_o", type="register_file"),
+                AbstractComponent(name="gb", type="global_buffer"),
+            ],
         )
 
         def ip(

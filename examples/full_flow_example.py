@@ -67,7 +67,6 @@ SUMMARY_FIELDNAMES = [
     "level2_valid",
     "constraints_satisfied",
     "constraint_violations",
-    "inferences_per_second",
     "level2_strategy",
     "level2_explored_combinations",
     "level1_csv_path",
@@ -728,9 +727,6 @@ def build_summary_rows(
                 "level2_valid": solution.get("valid", ""),
                 "constraints_satisfied": constraints_satisfied,
                 "constraint_violations": constraint_violations,
-                "inferences_per_second": (
-                    "" if inference_rate is None else inference_rate
-                ),
                 "level2_strategy": solution.get("strategy", ""),
                 "level2_explored_combinations": solution.get(
                     "explored_combinations",
