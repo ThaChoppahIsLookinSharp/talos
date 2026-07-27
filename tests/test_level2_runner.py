@@ -364,6 +364,24 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
                 power_model=model,
             )
 
+        memory_ips = [
+            IPBlock(
+                id=f"{name}_ip",
+                type=ip_type,
+                area=1,
+                throughput=1,
+                delay=1,
+                fmax_mhz=600,
+                metadata={"accesses_per_cycle": 1},
+                power_model=power_model(),
+            )
+            for name, ip_type in (
+                ("rf_i1", "register_file"),
+                ("rf_i2", "register_file"),
+                ("rf_o", "register_file"),
+                ("gb", "global_buffer"),
+            )
+        ]
         for candidates in (
             [
                 ip("a", power_model()),
@@ -380,7 +398,7 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
         ):
             Level2PymooProblem(
                 accelerator=accelerator,
-                ip_pool=IPPool([*candidates, dram_ip()]),
+                ip_pool=IPPool([*candidates, *memory_ips, dram_ip()]),
                 objective_names=["power"],
                 activity_profile=activity_profile(),
             )

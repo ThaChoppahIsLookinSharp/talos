@@ -55,10 +55,10 @@ def _implemented(
             {"macs_per_cycle": 1, "precision_bits": 8},
             pe_model,
         ),
-        ("rf_i1", "register_file", 1, {"accesses_per_cycle": 1}, _model(0, 0)),
-        ("rf_i2", "register_file", 1, {"accesses_per_cycle": 1}, _model(0, 0)),
-        ("rf_o", "register_file", 1, {"accesses_per_cycle": 1}, _model(0, 0)),
-        ("gb", "global_buffer", 1, {"accesses_per_cycle": 1}, _model(0, 0)),
+        ("rf_i1", "register_file", 1, {"accesses_per_cycle": 1}, memory_model),
+        ("rf_i2", "register_file", 1, {"accesses_per_cycle": 1}, memory_model),
+        ("rf_o", "register_file", 1, {"accesses_per_cycle": 1}, memory_model),
+        ("gb", "global_buffer", 1, {"accesses_per_cycle": 1}, memory_model),
     ):
         components.append(
             ImplementedComponent(
@@ -83,16 +83,17 @@ def _implemented(
 
 
 def _dram(model: PowerCharacterization | None = None) -> IPBlock:
+    selected_model = model or _model(0, 0)
     return IPBlock(
         id="dram",
         type="dram",
         area=0,
         throughput=1,
         delay=1,
-        fmax_mhz=100,
+        fmax_mhz=selected_model.reference_frequency_mhz,
         bandwidth_bits=512,
         metadata={"accesses_per_cycle": 1},
-        power_model=model or _model(0, 0),
+        power_model=selected_model,
     )
 
 
@@ -256,15 +257,15 @@ class WorkloadPowerTests(unittest.TestCase):
                 fmax_mhz=300.0,
             ),
             profile,
-            _dram(),
+            _dram(_model(0, 0, frequency_mhz=200.0)),
         )
 
-        self.assertAlmostEqual(result.workload_latency_s, 1000 / 100e6)
+        self.assertEqual(result.workload_latency_s, 0.01)
         self.assertAlmostEqual(result.power_w, 1.0)
-        self.assertAlmostEqual(result.energy_j, 1000 / 100e6)
-        self.assertEqual(result.workload_cycles_per_inference, 1000)
-        self.assertAlmostEqual(result.workload_throughput_ips, 100_000)
-        self.assertEqual(result.reference_frequency_mhz, 100.0)
+        self.assertAlmostEqual(result.energy_j, 0.01)
+        self.assertEqual(result.workload_cycles_per_inference, 2_000_000)
+        self.assertEqual(result.workload_throughput_ips, 100)
+        self.assertEqual(result.reference_frequency_mhz, 200.0)
         self.assertEqual(result.reference_voltage_v, 1.0)
 
         with self.assertRaisesRegex(ValueError, "reference_frequency_above_fmax"):

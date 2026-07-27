@@ -258,7 +258,7 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertNotIn("level1_area", SUMMARY_FIELDNAMES)
         self.assertTrue(rows[0]["constraints_satisfied"])
         self.assertEqual(rows[0]["constraint_violations"], [])
-        self.assertAlmostEqual(rows[0]["inferences_per_second"], 50_000.0)
+        self.assertAlmostEqual(rows[0]["workload_throughput_ips"], 50_000.0)
         self.assertEqual(rows[0]["reference_frequency_mhz"], 100.0)
         self.assertEqual(rows[0]["level2_power"], 0.1)
         self.assertEqual(rows[0]["workload_energy_j"], 2e-6)

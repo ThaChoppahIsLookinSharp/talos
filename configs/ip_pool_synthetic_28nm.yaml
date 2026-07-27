@@ -70,28 +70,6 @@ ips:
         active_mode: "One generic memory access per cycle."
         active_access_mix: "Synthetic representative read/write mix."
 
-  - id: dram_ddr_512b
-    type: dram
-    area: 0.0
-    throughput: 1.0
-    delay: 20.0
-    fmax_mhz: 500.0
-    bandwidth_bits: 512
-    metadata:
-      accesses_per_cycle: 1
-      disclaimer: "Synthetic effective off-chip DRAM plus PHY power; replace with a measured characterization."
-    power_model:
-      source: synthetic
-      activity_method: access_rate
-      reference_frequency_mhz: 500.0
-      p_idle_w: 0.02
-      p_active_w: 4.5
-      voltage_v: 1.0
-      temperature_c: 25.0
-      corner: tt
-      metadata:
-        idle_mode: "DRAM available with no data transfer."
-        active_mode: "One 512-bit access per cycle."
 
   - id: rf_1kb_128b
     type: register_file
