@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 import contextlib
 from dataclasses import dataclass
 import io
@@ -34,6 +34,21 @@ DEFAULT_DRAM_POWER_MODEL = PowerCharacterization(
     temperature_c=25.0,
     corner="tt",
 )
+ZIGZAG_MAPPING_OBJECTIVES = {"energy", "latency", "EDP"}
+
+
+def mapping_objective_for_level1(objective_names: Iterable[str]) -> str:
+    """Choose the one ZigZag mapping criterion matching Level-1 objectives."""
+    names = set(objective_names)
+    energy = bool(names & {"energy", "eap"})
+    latency = bool(names & {"latency", "alp"})
+    if "edp" in names or (energy and latency):
+        return "EDP"
+    if energy:
+        return "energy"
+    if latency:
+        return "latency"
+    return "EDP"
 
 
 @dataclass
@@ -44,6 +59,7 @@ class EvaluationResult:
     valid: bool
     error_message: str | None = None
     activity_profile: WorkloadActivityProfile | None = None
+    mapping_objective: str | None = None
 
 
 class ZigZagEvaluator:
@@ -75,6 +91,10 @@ class ZigZagEvaluator:
         if not isinstance(dram_power_model, PowerCharacterization):
             raise ValueError(
                 "DRAM power_model must be a PowerCharacterization."
+            )
+        if opt not in ZIGZAG_MAPPING_OBJECTIVES:
+            raise ValueError(
+                f"ZigZag opt must be one of {sorted(ZIGZAG_MAPPING_OBJECTIVES)}."
             )
         self.workload = workload
         self.mapping = mapping if mapping is not None else self._default_mapping()
@@ -115,6 +135,7 @@ class ZigZagEvaluator:
                 area=float(area),
                 valid=True,
                 activity_profile=extract_workload_activity_profile(cme),
+                mapping_objective=self.opt,
             )
 
         except Exception as exc:
@@ -130,6 +151,7 @@ class ZigZagEvaluator:
                 area=float("inf"),
                 valid=False,
                 error_message=str(exc),
+                mapping_objective=self.opt,
             )
 
     def _write_mapping_yaml(self, mapping: list[dict[str, Any]]) -> str:

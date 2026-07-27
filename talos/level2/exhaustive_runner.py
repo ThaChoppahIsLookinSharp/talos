@@ -12,6 +12,7 @@ from talos.level2.problem import Level2PymooProblem
 from talos.level2.runner import (
     DEFAULT_LEVEL2_OBJECTIVES,
     _evaluate_solution,
+    _solution_sort_key,
     _write_solutions_csv,
 )
 
@@ -65,12 +66,7 @@ def run_level2_exhaustive(
         if row["valid"] and row["constraints_satisfied"]:
             rows.append(row)
 
-    rows.sort(
-        key=lambda row: (
-            tuple(float(value) for value in row["objective_values"]),
-            tuple(float(value) for value in row["genome"]),
-        )
-    )
+    rows.sort(key=_solution_sort_key)
 
     csv_path = None
     if save_csv:

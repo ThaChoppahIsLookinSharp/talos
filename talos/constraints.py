@@ -41,7 +41,7 @@ class UserConstraints:
         *,
         area_mm2: float,
         power_w: float | None,
-        implementation_fmax_mhz: float | None,
+        physical_fmax_mhz: float | None,
     ) -> list[str]:
         violations: list[str] = []
         if self.max_area_mm2 is not None and area_mm2 > self.max_area_mm2:
@@ -58,12 +58,12 @@ class UserConstraints:
                     f"power_w {power_w} exceeds max_power_w {self.max_power_w}"
                 )
         if self.min_frequency_mhz is not None:
-            if implementation_fmax_mhz is None:
-                violations.append("implementation_fmax_mhz is unavailable")
-            elif implementation_fmax_mhz < self.min_frequency_mhz:
+            if physical_fmax_mhz is None:
+                violations.append("physical_fmax_mhz is unavailable")
+            elif physical_fmax_mhz < self.min_frequency_mhz:
                 violations.append(
-                    "implementation_fmax_mhz "
-                    f"{implementation_fmax_mhz} is below min_frequency_mhz {self.min_frequency_mhz}"
+                    "physical_fmax_mhz "
+                    f"{physical_fmax_mhz} is below min_frequency_mhz {self.min_frequency_mhz}"
                 )
         return violations
 
@@ -83,7 +83,7 @@ class UserConstraints:
         *,
         area_mm2: float,
         power_w: float | None,
-        implementation_fmax_mhz: float | None,
+        physical_fmax_mhz: float | None,
     ) -> list[float]:
         values: list[float] = []
         if self.max_area_mm2 is not None:
@@ -97,8 +97,8 @@ class UserConstraints:
         if self.min_frequency_mhz is not None:
             values.append(
                 float("inf")
-                if implementation_fmax_mhz is None
-                else self.min_frequency_mhz - implementation_fmax_mhz
+                if physical_fmax_mhz is None
+                else self.min_frequency_mhz - physical_fmax_mhz
             )
         return values
 

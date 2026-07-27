@@ -19,13 +19,14 @@ from talos.evaluation.workload_activity import WorkloadActivityProfile
 from talos.ip.ip_pool import IPPool
 from talos.level2.evaluator import Level2EvaluationResult, Level2Evaluator
 from talos.level2.genome import Level2GenomeSpec
-from talos.level2.workload_power import validate_power_aware_exploration
+from talos.level2.workload_power import validate_workload_aware_exploration
 
 
 SUPPORTED_LEVEL2_OBJECTIVES = {
     "area",
     "energy",
     "power",
+    "workload_latency_s",
     "delay",
     "inv_throughput",
 }
@@ -49,23 +50,24 @@ class Level2PymooProblem(ElementwiseProblem):
         self._validate_objective_names(self.objective_names)
         self.spec = Level2GenomeSpec.from_accelerator_and_pool(accelerator, ip_pool)
         dram_ips = ip_pool.by_type("dram")
-        power_required = any(
-            name in self.objective_names for name in ("energy", "power")
+        workload_required = any(
+            name in self.objective_names
+            for name in ("energy", "power", "workload_latency_s")
         ) or (
             constraints is not None and constraints.max_power_w is not None
         )
-        if power_required and activity_profile is None:
+        if workload_required and activity_profile is None:
             raise ValueError(
-                "Activity profile is missing; workload energy/power exploration "
-                "requires an activity profile."
+                "activity profile is missing; workload-aware Level 2 requires "
+                "the mapping profile produced by ZigZag."
             )
-        if power_required and len(dram_ips) != 1:
+        if activity_profile is not None and len(dram_ips) != 1:
             raise ValueError(
-                "Power-aware Level 2 requires exactly one characterized DRAM IP."
+                "Workload-aware Level 2 requires exactly one characterized DRAM IP."
             )
         dram_ip = dram_ips[0] if len(dram_ips) == 1 else None
-        if power_required:
-            validate_power_aware_exploration(
+        if activity_profile is not None:
+            validate_workload_aware_exploration(
                 self.spec,
                 activity_profile,
                 dram_ip,
@@ -125,7 +127,7 @@ class Level2PymooProblem(ElementwiseProblem):
             else self.constraints.level2_constraint_values(
                 area_mm2=result.area,
                 power_w=result.power,
-                implementation_fmax_mhz=result.implementation_fmax_mhz,
+                physical_fmax_mhz=result.physical_fmax_mhz,
             )
         )
 
@@ -140,14 +142,21 @@ class Level2PymooProblem(ElementwiseProblem):
             )
         if name == "power":
             return float("inf") if result.power is None else result.power
+        if name == "workload_latency_s":
+            return (
+                float("inf")
+                if result.workload_latency_s is None
+                else result.workload_latency_s
+            )
         if name == "delay":
-            return result.delay
+            return result.physical_critical_delay
         if name == "inv_throughput":
-            if result.throughput <= 0:
+            if result.selected_ip_min_throughput <= 0:
                 return float("inf")
-            return 1.0 / result.throughput
+            return 1.0 / result.selected_ip_min_throughput
         raise ValueError(
-            f"Unknown Level-2 objective {name!r}. Supported objectives: {', '.join(sorted(SUPPORTED_LEVEL2_OBJECTIVES))}."
+            f"Unknown Level-2 objective {name!r}. Supported objectives: "
+            f"{', '.join(sorted(SUPPORTED_LEVEL2_OBJECTIVES))}."
         )
 
     def _validate_objective_names(self, objective_names: list[str]) -> None:

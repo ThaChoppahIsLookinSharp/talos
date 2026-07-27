@@ -12,15 +12,25 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from talos.constraints import UserConstraints, estimated_inferences_per_second
+from talos.constraints import UserConstraints
 from talos.evaluation.workload_activity import WorkloadActivityProfile
-from talos.evaluation.zigzag_evaluator import EvaluationResult
+from talos.evaluation.zigzag_evaluator import (
+    EvaluationResult,
+    mapping_objective_for_level1,
+)
 
 
 LEVEL1_OBJECTIVES = ["latency", "energy", "area"]
-LEVEL2_OBJECTIVES = ["area", "energy", "delay"]
+LEVEL2_OBJECTIVES = ["area", "energy", "workload_latency_s"]
 SUPPORTED_LEVEL1_OBJECTIVES = ["latency", "energy", "area", "edp", "eap", "alp"]
-SUPPORTED_LEVEL2_OBJECTIVES = ["area", "energy", "power", "delay", "inv_throughput"]
+SUPPORTED_LEVEL2_OBJECTIVES = [
+    "area",
+    "energy",
+    "power",
+    "workload_latency_s",
+    "delay",
+    "inv_throughput",
+]
 SUMMARY_FIELDNAMES = [
     "architecture_index",
     "level1_raw_genome",
@@ -32,6 +42,7 @@ SUMMARY_FIELDNAMES = [
     "level1_latency",
     "level1_energy",
     "level1_area_proxy",
+    "zigzag_mapping_objective",
     "level2_solution_index",
     "level2_genome",
     "selected_ips",
@@ -41,13 +52,18 @@ SUMMARY_FIELDNAMES = [
     "level2_area",
     "level2_power",
     "workload_energy_j",
+    "layer_cycles_mapping",
+    "workload_cycles_per_inference",
     "workload_latency_s",
-    "operating_frequency_mhz",
+    "workload_throughput_ips",
+    "reference_frequency_mhz",
+    "reference_voltage_v",
     "dram_accesses",
     "dram_energy_j",
-    "level2_delay",
-    "level2_throughput",
-    "implementation_fmax_mhz",
+    "physical_critical_delay",
+    "selected_ip_min_throughput",
+    "physical_fmax_mhz",
+    "timing_margin_mhz",
     "level2_valid",
     "constraints_satisfied",
     "constraint_violations",
@@ -258,23 +274,16 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
-    power_required = (
-        any(name in args.level2_objectives for name in ("energy", "power"))
-        or constraints.max_power_w is not None
-    )
-    activity_evaluator = (
-        ZigZagEvaluator(
-            workload=str(workload),
-            debug=args.debug,
-            workdir=str(results_dir / "level1_profiles"),
-            lpf_limit=1,
-            nb_spatial_mappings_generated=1,
-            dram_bandwidth_bits=dram_ip.bandwidth_bits,
-            dram_accesses_per_cycle=dram_accesses_per_cycle,
-            dram_power_model=dram_ip.power_model,
-        )
-        if power_required
-        else None
+    activity_evaluator = ZigZagEvaluator(
+        workload=str(workload),
+        opt=mapping_objective_for_level1(args.level1_objectives),
+        debug=args.debug,
+        workdir=str(results_dir / "level1_profiles"),
+        lpf_limit=1,
+        nb_spatial_mappings_generated=1,
+        dram_bandwidth_bits=dram_ip.bandwidth_bits,
+        dram_accesses_per_cycle=dram_accesses_per_cycle,
+        dram_power_model=dram_ip.power_model,
     )
 
     print("[Level 1] Running small architecture exploration...")
@@ -335,9 +344,7 @@ def main() -> int:
             abstract_accelerator_from_level1_config
         ),
         constraints=constraints,
-        evaluate_activity=(
-            None if activity_evaluator is None else activity_evaluator.evaluate
-        ),
+        evaluate_activity=activity_evaluator.evaluate,
         exhaustive_max_combinations=args.level2_exhaustive_max_combinations,
         failures=flow_failures,
     )
@@ -636,20 +643,20 @@ def build_summary_rows(
     area_proxy = level1_by_name.get("area", "")
     rows: list[dict[str, Any]] = []
     for solution in level2_solutions:
-        implementation_fmax_mhz = solution.get("implementation_fmax_mhz")
         workload_latency_s = solution.get("workload_latency_s")
         constraint_violations = _combined_constraint_violations(
             constraints=constraints,
             latency_cycles=latency_cycles,
             level2_violations=solution.get("constraint_violations", []),
         )
-        constraints_satisfied = bool(solution.get("valid", False)) and not constraint_violations
-        inference_rate = estimated_inferences_per_second(
-            workload_latency_s=(
-                float(workload_latency_s)
-                if constraints_satisfied and workload_latency_s not in (None, "")
-                else None
-            )
+        constraints_satisfied = (
+            bool(solution.get("valid", False))
+            and not constraint_violations
+        )
+        inference_rate = (
+            solution.get("workload_throughput_ips")
+            if constraints_satisfied
+            else None
         )
         rows.append(
             {
@@ -663,6 +670,11 @@ def build_summary_rows(
                 "level1_latency": level1_by_name.get("latency", ""),
                 "level1_energy": level1_by_name.get("energy", ""),
                 "level1_area_proxy": area_proxy,
+                "zigzag_mapping_objective": (
+                    ""
+                    if level1_evaluation is None
+                    else level1_evaluation.mapping_objective or ""
+                ),
                 "level2_solution_index": solution.get("solution_index", ""),
                 "level2_genome": solution.get("genome", ""),
                 "selected_ips": solution.get("selected_ips", ""),
@@ -675,11 +687,27 @@ def build_summary_rows(
                 "level2_area": solution.get("area", ""),
                 "level2_power": solution.get("power", ""),
                 "workload_energy_j": solution.get("workload_energy_j", ""),
+                "layer_cycles_mapping": solution.get(
+                    "layer_cycles_mapping",
+                    "",
+                ),
+                "workload_cycles_per_inference": solution.get(
+                    "workload_cycles_per_inference",
+                    "",
+                ),
                 "workload_latency_s": (
                     "" if workload_latency_s is None else workload_latency_s
                 ),
-                "operating_frequency_mhz": solution.get(
-                    "operating_frequency_mhz",
+                "workload_throughput_ips": solution.get(
+                    "workload_throughput_ips",
+                    "",
+                ),
+                "reference_frequency_mhz": solution.get(
+                    "reference_frequency_mhz",
+                    "",
+                ),
+                "reference_voltage_v": solution.get(
+                    "reference_voltage_v",
                     "",
                 ),
                 "dram_accesses": solution.get("dram_accesses", ""),
@@ -687,9 +715,16 @@ def build_summary_rows(
                     "dram_energy_j",
                     "",
                 ),
-                "level2_delay": solution.get("delay", ""),
-                "level2_throughput": solution.get("throughput", ""),
-                "implementation_fmax_mhz": implementation_fmax_mhz,
+                "physical_critical_delay": solution.get(
+                    "physical_critical_delay",
+                    "",
+                ),
+                "selected_ip_min_throughput": solution.get(
+                    "selected_ip_min_throughput",
+                    "",
+                ),
+                "physical_fmax_mhz": solution.get("physical_fmax_mhz", ""),
+                "timing_margin_mhz": solution.get("timing_margin_mhz", ""),
                 "level2_valid": solution.get("valid", ""),
                 "constraints_satisfied": constraints_satisfied,
                 "constraint_violations": constraint_violations,
@@ -741,7 +776,7 @@ def write_summary_csv(results_dir: Path, rows: list[dict[str, Any]]) -> Path:
 
 
 def csv_value(value: Any) -> Any:
-    if isinstance(value, (list, dict)):
+    if isinstance(value, (list, tuple, dict)):
         return json.dumps(value, sort_keys=True)
     return value
 
@@ -751,13 +786,20 @@ def print_first_solution(solution: dict[str, Any]) -> None:
     print(f"    area: {solution.get('area')}")
     print(f"    power: {solution.get('power')}")
     print(f"    workload_energy_j: {solution.get('workload_energy_j')}")
+    print(f"    layer_cycles_mapping: {solution.get('layer_cycles_mapping')}")
+    print(
+        "    workload_cycles_per_inference: "
+        f"{solution.get('workload_cycles_per_inference')}"
+    )
     print(f"    workload_latency_s: {solution.get('workload_latency_s')}")
-    print(f"    operating_frequency_mhz: {solution.get('operating_frequency_mhz')}")
+    print(f"    workload_throughput_ips: {solution.get('workload_throughput_ips')}")
+    print(f"    reference_frequency_mhz: {solution.get('reference_frequency_mhz')}")
+    print(f"    reference_voltage_v: {solution.get('reference_voltage_v')}")
     print(f"    dram_accesses: {solution.get('dram_accesses')}")
     print(f"    dram_energy_j: {solution.get('dram_energy_j')}")
-    print(f"    delay: {solution.get('delay')}")
-    print(f"    throughput: {solution.get('throughput')}")
-    print(f"    fmax_mhz: {solution.get('implementation_fmax_mhz')}")
+    print(f"    physical_critical_delay: {solution.get('physical_critical_delay')}")
+    print(f"    physical_fmax_mhz: {solution.get('physical_fmax_mhz')}")
+    print(f"    timing_margin_mhz: {solution.get('timing_margin_mhz')}")
     print(f"    constraints_satisfied: {solution.get('constraints_satisfied')}")
     print(f"    selected IPs: {solution.get('selected_ips')}")
     print(f"    RFs covered by PE: {solution.get('covered_by_pe')}")

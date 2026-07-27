@@ -14,7 +14,7 @@ from talos.ip.ip_pool import IPPool
 from talos.level2.problem import Level2PymooProblem
 
 
-DEFAULT_LEVEL2_OBJECTIVES = ["area", "energy", "delay"]
+DEFAULT_LEVEL2_OBJECTIVES = ["area", "energy", "workload_latency_s"]
 Level2Strategy = Literal["nsga2", "exhaustive"]
 
 
@@ -215,7 +215,17 @@ def _build_solution_rows(
             continue
         seen_ip_sets.add(ip_set)
         rows.append(row)
+    rows.sort(key=_solution_sort_key)
     return rows
+
+
+def _solution_sort_key(row: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        tuple(float(value) for value in row["objective_values"]),
+        float(row["physical_critical_delay"]),
+        float(row["area"]),
+        tuple(float(value) for value in row["genome"]),
+    )
 
 
 def _evaluate_solution(
@@ -257,24 +267,34 @@ def _evaluate_solution(
         area = float("inf")
         power = None
         workload_energy_j = None
+        layer_cycles_mapping = None
+        workload_cycles_per_inference = None
         workload_latency_s = None
-        operating_frequency_mhz = None
+        workload_throughput_ips = None
+        reference_frequency_mhz = None
+        reference_voltage_v = None
         dram_energy_j = None
-        delay = float("inf")
-        throughput = 0.0
-        implementation_fmax_mhz = None
+        physical_critical_delay = float("inf")
+        selected_ip_min_throughput = 0.0
+        physical_fmax_mhz = None
+        timing_margin_mhz = None
         valid = False
         constraint_violations: list[str] = []
     else:
         area = result.area
         power = result.power
         workload_energy_j = result.workload_energy_j
+        layer_cycles_mapping = result.layer_cycles_mapping
+        workload_cycles_per_inference = result.workload_cycles_per_inference
         workload_latency_s = result.workload_latency_s
-        operating_frequency_mhz = result.operating_frequency_mhz
+        workload_throughput_ips = result.workload_throughput_ips
+        reference_frequency_mhz = result.reference_frequency_mhz
+        reference_voltage_v = result.reference_voltage_v
         dram_energy_j = result.dram_energy_j
-        delay = result.delay
-        throughput = result.throughput
-        implementation_fmax_mhz = result.implementation_fmax_mhz
+        physical_critical_delay = result.physical_critical_delay
+        selected_ip_min_throughput = result.selected_ip_min_throughput
+        physical_fmax_mhz = result.physical_fmax_mhz
+        timing_margin_mhz = result.timing_margin_mhz
         valid = result.valid
         constraint_violations = list(result.constraint_violations)
         error_message = result.error_message
@@ -295,13 +315,18 @@ def _evaluate_solution(
         "area": area,
         "power": power,
         "workload_energy_j": workload_energy_j,
+        "layer_cycles_mapping": layer_cycles_mapping,
+        "workload_cycles_per_inference": workload_cycles_per_inference,
         "workload_latency_s": workload_latency_s,
-        "operating_frequency_mhz": operating_frequency_mhz,
+        "workload_throughput_ips": workload_throughput_ips,
+        "reference_frequency_mhz": reference_frequency_mhz,
+        "reference_voltage_v": reference_voltage_v,
         "dram_accesses": dram_accesses,
         "dram_energy_j": dram_energy_j,
-        "delay": delay,
-        "throughput": throughput,
-        "implementation_fmax_mhz": implementation_fmax_mhz,
+        "physical_critical_delay": physical_critical_delay,
+        "selected_ip_min_throughput": selected_ip_min_throughput,
+        "physical_fmax_mhz": physical_fmax_mhz,
+        "timing_margin_mhz": timing_margin_mhz,
         "valid": valid,
         "constraints_satisfied": valid and not constraint_violations,
         "constraint_violations": constraint_violations,
@@ -324,13 +349,18 @@ def _write_solutions_csv(csv_path: Path, solutions: list[dict[str, Any]]) -> Non
         "area",
         "power",
         "workload_energy_j",
+        "layer_cycles_mapping",
+        "workload_cycles_per_inference",
         "workload_latency_s",
-        "operating_frequency_mhz",
+        "workload_throughput_ips",
+        "reference_frequency_mhz",
+        "reference_voltage_v",
         "dram_accesses",
         "dram_energy_j",
-        "delay",
-        "throughput",
-        "implementation_fmax_mhz",
+        "physical_critical_delay",
+        "selected_ip_min_throughput",
+        "physical_fmax_mhz",
+        "timing_margin_mhz",
         "valid",
         "constraints_satisfied",
         "constraint_violations",
@@ -357,6 +387,6 @@ def _write_solutions_csv(csv_path: Path, solutions: list[dict[str, Any]]) -> Non
 
 
 def _csv_value(value: Any) -> Any:
-    if isinstance(value, (list, dict)):
+    if isinstance(value, (list, tuple, dict)):
         return json.dumps(value, sort_keys=True)
     return value

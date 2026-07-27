@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 from typing import Any
 
@@ -14,6 +14,7 @@ class LayerActivity:
     mac_count: float
     spatially_used_pes: int
     memory_accesses: dict[str, float]
+    operand_precision_bits: dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.layer_id.strip():
@@ -33,6 +34,13 @@ class LayerActivity:
                 raise ValueError(
                     f"LayerActivity accesses for {name!r} must be finite and >= 0."
                 )
+        if not isinstance(self.operand_precision_bits, dict) or any(
+            not name.strip() or not isinstance(bits, int) or bits <= 0
+            for name, bits in self.operand_precision_bits.items()
+        ):
+            raise ValueError(
+                "LayerActivity operand precisions must be named positive integers."
+            )
 
 
 @dataclass(frozen=True)
@@ -50,6 +58,46 @@ class WorkloadActivityProfile:
     @property
     def total_dram_accesses(self) -> float:
         return sum(layer.memory_accesses.get("dram", 0.0) for layer in self.layers)
+
+
+@dataclass(frozen=True)
+class WorkloadPerformance:
+    layer_cycles_mapping: tuple[tuple[str, float], ...]
+    workload_cycles_per_inference: float
+    workload_latency_s: float
+    workload_throughput_ips: float
+
+
+def compute_workload_performance(
+    profile: WorkloadActivityProfile,
+    reference_frequency_mhz: float,
+) -> WorkloadPerformance:
+    """Batch-1 sequential inference performance at the characterized clock."""
+    if (
+        not math.isfinite(reference_frequency_mhz)
+        or reference_frequency_mhz <= 0
+    ):
+        raise ValueError("reference_frequency_mhz must be finite and > 0.")
+    layer_cycles = tuple(
+        (layer.layer_id, layer.latency_cycles) for layer in profile.layers
+    )
+    total_cycles = sum(cycles for _layer_id, cycles in layer_cycles)
+    if not math.isfinite(total_cycles) or total_cycles <= 0:
+        raise ValueError("workload_cycles_per_inference must be finite and > 0.")
+    latency_s = total_cycles / (reference_frequency_mhz * 1_000_000.0)
+    throughput_ips = 1.0 / latency_s
+    if not all(
+        math.isfinite(value) and value > 0
+        for value in (latency_s, throughput_ips)
+    ):
+        raise ValueError("Workload performance must be finite and > 0.")
+    return WorkloadPerformance(
+        layer_cycles_mapping=layer_cycles,
+        workload_cycles_per_inference=total_cycles,
+        workload_latency_s=latency_s,
+        workload_throughput_ips=throughput_ips,
+    )
+
 
 _MEMORY_BINDINGS = {
     ("I1", "rf_i1"): "rf_i1",
@@ -107,6 +155,14 @@ def _extract_layer_activity(cme: Any) -> LayerActivity:
         mac_count=float(layer.total_mac_count),
         spatially_used_pes=_spatially_used_pes(cme),
         memory_accesses=memory_accesses,
+        operand_precision_bits={
+            str(operand): int(bits)
+            for operand, bits in getattr(
+                getattr(layer, "operand_precision", None),
+                "data",
+                {},
+            ).items()
+        },
     )
 
 

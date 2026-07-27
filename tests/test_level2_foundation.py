@@ -464,9 +464,9 @@ class Level2EvaluatorTests(unittest.TestCase):
 
         self.assertTrue(result.valid)
         self.assertEqual(result.area, 6)
-        self.assertEqual(result.delay, 5)
-        self.assertEqual(result.throughput, 4)
-        self.assertEqual(result.implementation_fmax_mhz, 600)
+        self.assertEqual(result.physical_critical_delay, 5)
+        self.assertEqual(result.selected_ip_min_throughput, 4)
+        self.assertEqual(result.physical_fmax_mhz, 600)
 
         invalid = Level2Evaluator().evaluate(
             ImplementedAccelerator(
@@ -495,8 +495,8 @@ class Level2EvaluatorTests(unittest.TestCase):
         self.assertIsNone(result.power)
         self.assertIsNone(result.workload_energy_j)
         self.assertIsNone(result.workload_latency_s)
-        self.assertGreater(result.delay, 0.0)
-        self.assertGreater(result.throughput, 0.0)
+        self.assertGreater(result.physical_critical_delay, 0.0)
+        self.assertGreater(result.selected_ip_min_throughput, 0.0)
 
     def test_level2_evaluator_marks_invalid_incompatible_component(self) -> None:
         component = AbstractComponent(
@@ -522,7 +522,7 @@ class Level2EvaluatorTests(unittest.TestCase):
         )
 
         self.assertFalse(result.valid)
-        self.assertEqual(result.throughput, 0.0)
+        self.assertEqual(result.selected_ip_min_throughput, 0.0)
         self.assertIn("does not satisfy", result.error_message or "")
 
 

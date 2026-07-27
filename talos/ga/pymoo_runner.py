@@ -33,6 +33,7 @@ from talos.evaluation.zigzag_evaluator import (
     DEFAULT_DRAM_ACCESSES_PER_CYCLE,
     DEFAULT_DRAM_POWER_MODEL,
     ZigZagEvaluator,
+    mapping_objective_for_level1,
 )
 from talos.ip.ip_characterization import PowerCharacterization
 
@@ -53,6 +54,7 @@ class PymooRunArtifacts:
     n_gen: int
     seed: int
     n_workers: int
+    zigzag_mapping_objective: str
 
 
 class TalosPymooProblem(ElementwiseProblem):
@@ -85,6 +87,9 @@ class TalosPymooProblem(ElementwiseProblem):
     ) -> None:
         self.workload_path = workload_path
         self.objective_names = list(objective_names)
+        self.zigzag_mapping_objective = mapping_objective_for_level1(
+            self.objective_names
+        )
         self.debug = debug
         self.workdir = workdir
         self.zigzag_lpf_limit = zigzag_lpf_limit
@@ -117,6 +122,7 @@ class TalosPymooProblem(ElementwiseProblem):
         if self._adapter is None:
             evaluator = ZigZagEvaluator(
                 workload=self.workload_path,
+                opt=self.zigzag_mapping_objective,
                 debug=self.debug,
                 workdir=self._worker_workdir(),
                 lpf_limit=self.zigzag_lpf_limit,
@@ -188,6 +194,7 @@ def run_nsga2_pymoo(
     dram_power_model: PowerCharacterization = DEFAULT_DRAM_POWER_MODEL,
 ):
     objective_names = list(objective_names or DEFAULT_OBJECTIVES)
+    zigzag_mapping_objective = mapping_objective_for_level1(objective_names)
     _validate_run_config(
         objective_names,
         pop_size,
@@ -202,6 +209,7 @@ def run_nsga2_pymoo(
 
     evaluator = ZigZagEvaluator(
         workload=workload_path,
+        opt=zigzag_mapping_objective,
         debug=debug,
         workdir=str(workdir / "main"),
         lpf_limit=zigzag_lpf_limit,
@@ -285,6 +293,7 @@ def run_nsga2_pymoo(
         n_gen=n_gen,
         seed=seed,
         n_workers=n_workers,
+        zigzag_mapping_objective=zigzag_mapping_objective,
     )
     return result
 
@@ -353,6 +362,7 @@ def _write_results_csv(
         "n_gen",
         "seed",
         "n_workers",
+        "zigzag_mapping_objective",
         "latency_cycles",
         "latency",
         "energy",
@@ -403,6 +413,9 @@ def _write_results_csv(
                 "n_gen": n_gen,
                 "seed": seed,
                 "n_workers": n_workers,
+                "zigzag_mapping_objective": mapping_objective_for_level1(
+                    objective_names
+                ),
                 "latency_cycles": latency,
                 "latency": latency,
                 "energy": energy,

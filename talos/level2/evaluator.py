@@ -20,11 +20,16 @@ class Level2EvaluationResult:
     power: float | None
     workload_energy_j: float | None
     dram_energy_j: float | None
+    layer_cycles_mapping: tuple[tuple[str, float], ...] | None
+    workload_cycles_per_inference: float | None
     workload_latency_s: float | None
-    operating_frequency_mhz: float | None
-    delay: float
-    throughput: float
-    implementation_fmax_mhz: float | None
+    workload_throughput_ips: float | None
+    reference_frequency_mhz: float | None
+    reference_voltage_v: float | None
+    physical_critical_delay: float
+    selected_ip_min_throughput: float
+    physical_fmax_mhz: float | None
+    timing_margin_mhz: float | None
     valid: bool
     constraint_violations: tuple[str, ...] = ()
     error_message: str | None = None
@@ -49,29 +54,43 @@ class Level2Evaluator:
                 component.abstract_component.count * component.ip.area
                 for component in physical
             )
-            delay = max(component.ip.delay for component in physical)
-            throughput = min(
+            physical_critical_delay = max(
+                component.ip.delay for component in physical
+            )
+            selected_ip_min_throughput = min(
                 component.ip.throughput for component in physical
             )
-            implementation_fmax_mhz = self._implementation_fmax_mhz(
+            physical_fmax_mhz = self._physical_fmax_mhz(
                 physical
             )
 
             power_result = None
-            if self.activity_profile is not None and all(
-                component.ip.power_model is not None
-                for component in implemented.components
-            ) and self.dram_ip is not None:
+            if self.activity_profile is not None:
+                if self.dram_ip is None:
+                    raise ValueError(
+                        "missing_characterization: workload-aware Level 2 "
+                        "requires one DRAM IP."
+                    )
                 power_result = evaluate_workload_power(
                     implemented,
                     self.activity_profile,
                     self.dram_ip,
                 )
             power = None if power_result is None else power_result.power_w
+            reference_frequency_mhz = (
+                None
+                if power_result is None
+                else power_result.reference_frequency_mhz
+            )
+            timing_margin_mhz = (
+                None
+                if reference_frequency_mhz is None or physical_fmax_mhz is None
+                else physical_fmax_mhz - reference_frequency_mhz
+            )
             constraint_violations = self._constraint_violations(
                 area=area,
                 power=power,
-                implementation_fmax_mhz=implementation_fmax_mhz,
+                physical_fmax_mhz=physical_fmax_mhz,
             )
             return Level2EvaluationResult(
                 area=float(area),
@@ -82,17 +101,36 @@ class Level2Evaluator:
                 dram_energy_j=(
                     None if power_result is None else power_result.dram_energy_j
                 ),
-                workload_latency_s=(
-                    None if power_result is None else power_result.latency_s
-                ),
-                operating_frequency_mhz=(
+                layer_cycles_mapping=(
                     None
                     if power_result is None
-                    else power_result.operating_frequency_mhz
+                    else power_result.layer_cycles_mapping
                 ),
-                delay=float(delay),
-                throughput=float(throughput),
-                implementation_fmax_mhz=implementation_fmax_mhz,
+                workload_cycles_per_inference=(
+                    None
+                    if power_result is None
+                    else power_result.workload_cycles_per_inference
+                ),
+                workload_latency_s=(
+                    None
+                    if power_result is None
+                    else power_result.workload_latency_s
+                ),
+                workload_throughput_ips=(
+                    None
+                    if power_result is None
+                    else power_result.workload_throughput_ips
+                ),
+                reference_frequency_mhz=reference_frequency_mhz,
+                reference_voltage_v=(
+                    None
+                    if power_result is None
+                    else power_result.reference_voltage_v
+                ),
+                physical_critical_delay=float(physical_critical_delay),
+                selected_ip_min_throughput=float(selected_ip_min_throughput),
+                physical_fmax_mhz=physical_fmax_mhz,
+                timing_margin_mhz=timing_margin_mhz,
                 valid=not constraint_violations,
                 constraint_violations=tuple(constraint_violations),
                 error_message="; ".join(constraint_violations) or None,
@@ -103,16 +141,21 @@ class Level2Evaluator:
                 power=None,
                 workload_energy_j=None,
                 dram_energy_j=None,
+                layer_cycles_mapping=None,
+                workload_cycles_per_inference=None,
                 workload_latency_s=None,
-                operating_frequency_mhz=None,
-                delay=float("inf"),
-                throughput=0.0,
-                implementation_fmax_mhz=None,
+                workload_throughput_ips=None,
+                reference_frequency_mhz=None,
+                reference_voltage_v=None,
+                physical_critical_delay=float("inf"),
+                selected_ip_min_throughput=0.0,
+                physical_fmax_mhz=None,
+                timing_margin_mhz=None,
                 valid=False,
                 error_message=str(exc),
             )
 
-    def _implementation_fmax_mhz(
+    def _physical_fmax_mhz(
         self,
         components: Iterable[ImplementedComponent],
     ) -> float | None:
@@ -126,14 +169,14 @@ class Level2Evaluator:
         *,
         area: float,
         power: float | None,
-        implementation_fmax_mhz: float | None,
+        physical_fmax_mhz: float | None,
     ) -> list[str]:
         if self.constraints is None:
             return []
         return self.constraints.level2_violations(
             area_mm2=float(area),
             power_w=power,
-            implementation_fmax_mhz=implementation_fmax_mhz,
+            physical_fmax_mhz=physical_fmax_mhz,
         )
 
     def _validate_implemented_accelerator(

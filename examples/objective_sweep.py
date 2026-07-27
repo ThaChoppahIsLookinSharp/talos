@@ -19,7 +19,7 @@ FULL_FLOW_SCRIPT = REPO_ROOT / "examples" / "full_flow_example.py"
 OBJECTIVE_MAP = {
     "energy": (["energy"], ["energy"]),
     "area": (["area"], ["area"]),
-    "performance": (["latency"], ["delay"]),
+    "performance": (["latency"], ["workload_latency_s"]),
 }
 OBJECTIVE_CASES = [
     ("energy", ["energy"]),

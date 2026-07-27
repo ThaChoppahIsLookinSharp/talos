@@ -223,18 +223,19 @@ class UserConstraintsTests(unittest.TestCase):
             level1_architecture_config={},
             level1_objective_values=[10.0, 1.0, 2.0],
             level1_objective_names=["latency", "energy", "area"],
-            level2_objective_names=["area", "energy", "delay"],
+            level2_objective_names=["area", "energy", "workload_latency_s"],
             level1_csv_path="level1.csv",
             level2_csv_path=None,
             level2_solutions=[
                 {
                     "solution_index": 0,
                     "valid": True,
-                    "implementation_fmax_mhz": 200.0,
+                    "physical_fmax_mhz": 200.0,
                     "power": 0.1,
                     "workload_energy_j": 2e-6,
                     "workload_latency_s": 20e-6,
-                    "operating_frequency_mhz": 100.0,
+                    "reference_frequency_mhz": 100.0,
+                    "workload_throughput_ips": 50_000.0,
                     "dram_accesses": 1000,
                     "dram_energy_j": 1e-6,
                     "covered_by_pe": {"rf_i1": "pe_tile"},
@@ -249,7 +250,7 @@ class UserConstraintsTests(unittest.TestCase):
 
         self.assertIn("constraints_satisfied", SUMMARY_FIELDNAMES)
         self.assertIn("workload_energy_j", SUMMARY_FIELDNAMES)
-        self.assertIn("operating_frequency_mhz", SUMMARY_FIELDNAMES)
+        self.assertIn("reference_frequency_mhz", SUMMARY_FIELDNAMES)
         self.assertIn("dram_accesses", SUMMARY_FIELDNAMES)
         self.assertIn("dram_energy_j", SUMMARY_FIELDNAMES)
         self.assertIn("covered_by_pe", SUMMARY_FIELDNAMES)
@@ -257,7 +258,7 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertTrue(rows[0]["constraints_satisfied"])
         self.assertEqual(rows[0]["constraint_violations"], [])
         self.assertAlmostEqual(rows[0]["inferences_per_second"], 50_000.0)
-        self.assertEqual(rows[0]["operating_frequency_mhz"], 100.0)
+        self.assertEqual(rows[0]["reference_frequency_mhz"], 100.0)
         self.assertEqual(rows[0]["level2_power"], 0.1)
         self.assertEqual(rows[0]["workload_energy_j"], 2e-6)
         self.assertEqual(rows[0]["dram_accesses"], 1000)
@@ -279,7 +280,7 @@ class UserConstraintsTests(unittest.TestCase):
                 {
                     "solution_index": 0,
                     "valid": True,
-                    "implementation_fmax_mhz": 500.0,
+                    "physical_fmax_mhz": 500.0,
                     "constraint_violations": [],
                 }
             ],
@@ -625,7 +626,7 @@ class UserConstraintsTests(unittest.TestCase):
         )
         self.assertEqual(
             cases[-1].level2_objectives,
-            ["energy", "area", "delay"],
+            ["energy", "area", "workload_latency_s"],
         )
         self.assertIn("--level1-objectives", command)
         self.assertIn("--level2-objectives", command)

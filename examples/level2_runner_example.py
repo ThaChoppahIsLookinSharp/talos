@@ -39,8 +39,8 @@ def main() -> None:
             f"{solution['solution_index']}: "
             f"valid={solution['valid']} "
             f"area={solution['area']} "
-            f"delay={solution['delay']} "
-            f"throughput={solution['throughput']} "
+            f"physical_critical_delay={solution['physical_critical_delay']} "
+            f"selected_ip_min_throughput={solution['selected_ip_min_throughput']} "
             f"selected_ips={solution['selected_ips']}"
         )
 
