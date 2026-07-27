@@ -16,7 +16,10 @@ from nsga2.problem import Problem
 
 from talos.architecture.genome import GENOME_LENGTH, gene_bounds, gene_names
 from talos.evaluation.objective_adapter import ObjectiveAdapter
-from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
+from talos.evaluation.zigzag_evaluator import (
+    ZigZagEvaluator,
+    mapping_objective_for_level1,
+)
 
 
 DEFAULT_OBJECTIVES = ["latency", "energy", "area"]
@@ -31,6 +34,7 @@ class NSGA2RunResult:
     seed: int
     num_of_generations: int
     num_of_individuals: int
+    zigzag_mapping_objective: str
 
 
 def run_nsga2(
@@ -61,7 +65,12 @@ def run_nsga2(
     except ImportError:
         pass
 
-    evaluator = ZigZagEvaluator(workload=workload_path, debug=debug)
+    zigzag_mapping_objective = mapping_objective_for_level1(objective_names)
+    evaluator = ZigZagEvaluator(
+        workload=workload_path,
+        opt=zigzag_mapping_objective,
+        debug=debug,
+    )
     adapter = ObjectiveAdapter(evaluator, verbose=debug)
     objectives = adapter.build_objectives(objective_names)
 
@@ -112,6 +121,7 @@ def run_nsga2(
         seed=seed,
         num_of_generations=num_of_generations,
         num_of_individuals=num_of_individuals,
+        zigzag_mapping_objective=zigzag_mapping_objective,
     )
 
 
@@ -140,6 +150,7 @@ def _write_results_csv(
         "seed",
         "num_of_generations",
         "num_of_individuals",
+        "zigzag_mapping_objective",
         "latency",
         "energy",
         "area",
@@ -167,6 +178,9 @@ def _write_results_csv(
                 "seed": seed,
                 "num_of_generations": num_of_generations,
                 "num_of_individuals": num_of_individuals,
+                "zigzag_mapping_objective": mapping_objective_for_level1(
+                    objective_names
+                ),
                 "latency": result.latency,
                 "energy": result.energy,
                 "area": result.area,

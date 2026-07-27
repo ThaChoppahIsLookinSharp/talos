@@ -75,8 +75,10 @@ memories:
     served_dimensions: [D1, D2]
   dram:
     size: 1000000000000
-    r_cost: 1000.0
-    w_cost: 1000.0
+    # Derived from the synthetic 1024-bit DRAM model in ip_pool_example.yaml:
+    # (8.98 W - 0.02 W) / (500 MHz * 1 access/cycle) = 17.92 nJ/access.
+    r_cost: 17920.0
+    w_cost: 17920.0
     area: 0.0
     latency: 1
     mem_type: dram

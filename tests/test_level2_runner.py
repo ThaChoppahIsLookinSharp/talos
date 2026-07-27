@@ -64,11 +64,29 @@ def power_model(
     )
 
 
+def dram_ip(
+    *,
+    frequency: float = 500.0,
+    voltage: float = 1.0,
+) -> IPBlock:
+    return IPBlock(
+        id="dram",
+        type="dram",
+        area=0,
+        throughput=1,
+        delay=20,
+        fmax_mhz=frequency,
+        bandwidth_bits=512,
+        metadata={"accesses_per_cycle": 1},
+        power_model=power_model(frequency=frequency, voltage=voltage),
+    )
+
+
 class Level2ExhaustiveRunnerTests(unittest.TestCase):
     def test_default_level2_objectives(self) -> None:
         self.assertEqual(
             DEFAULT_LEVEL2_OBJECTIVES,
-            ["area", "energy", "delay"],
+            ["area", "energy", "workload_latency_s"],
         )
 
     def test_exhaustive_runner_finds_known_strict_frequency_solution(self) -> None:
@@ -97,21 +115,35 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
         self.assertIsNotNone(solution["power"])
         self.assertIsNotNone(solution["workload_energy_j"])
         self.assertIsNotNone(solution["workload_latency_s"])
-        self.assertEqual(solution["operating_frequency_mhz"], 500.0)
-        self.assertEqual(solution["objective_names"], ["area", "energy", "delay"])
+        self.assertEqual(solution["reference_frequency_mhz"], 500.0)
+        self.assertEqual(
+            solution["objective_names"],
+            ["area", "energy", "workload_latency_s"],
+        )
         self.assertEqual(
             solution["objective_values"][1],
             solution["workload_energy_j"],
         )
         self.assertEqual(solution["dram_accesses"], 0)
-        self.assertEqual(solution["dram_access_energy_j"], 0)
+        self.assertGreater(solution["dram_energy_j"], 0)
         self.assertTrue(
             all(
                 row["area"] <= 0.4
                 and row["power"] <= 0.12
-                and row["implementation_fmax_mhz"] >= 800.0
+                and row["physical_fmax_mhz"] >= 800.0
                 for row in result.solutions
             )
+        )
+        self.assertEqual(solution["workload_cycles_per_inference"], 1000)
+        self.assertEqual(solution["workload_latency_s"], 2e-6)
+        self.assertEqual(solution["workload_throughput_ips"], 500_000)
+        self.assertEqual(
+            solution["timing_margin_mhz"],
+            solution["physical_fmax_mhz"] - solution["reference_frequency_mhz"],
+        )
+        self.assertEqual(
+            {row["workload_latency_s"] for row in result.solutions},
+            {2e-6},
         )
         self.assertEqual(solution["strategy"], "exhaustive")
 
@@ -168,28 +200,33 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
             components=[AbstractComponent(name="pe_array", type="pe")],
         )
         uncharacterized_pool = IPPool(
-            [IPBlock(id="pe", type="pe", area=1, throughput=1, delay=1)]
+            [
+                IPBlock(id="pe", type="pe", area=1, throughput=1, delay=1),
+                dram_ip(),
+            ]
         )
-        with self.assertRaisesRegex(ValueError, "Activity profile is missing"):
+        with self.assertRaisesRegex(ValueError, "activity profile is missing"):
             Level2PymooProblem(
                 accelerator=accelerator,
                 ip_pool=uncharacterized_pool,
                 objective_names=["energy"],
             )
-        with self.assertRaisesRegex(ValueError, "Activity profile is missing"):
+        with self.assertRaisesRegex(ValueError, "activity profile is missing"):
             Level2PymooProblem(
                 accelerator=accelerator,
                 ip_pool=uncharacterized_pool,
                 objective_names=["area"],
                 constraints=UserConstraints(max_power_w=1),
             )
-        with self.assertRaisesRegex(ValueError, "has no power_model"):
-            Level2PymooProblem(
-                accelerator=accelerator,
-                ip_pool=uncharacterized_pool,
-                objective_names=["power"],
-                activity_profile=activity_profile(),
-            )
+        problem = Level2PymooProblem(
+            accelerator=accelerator,
+            ip_pool=uncharacterized_pool,
+            objective_names=["power"],
+            activity_profile=activity_profile(),
+        )
+        out: dict[str, object] = {}
+        problem._evaluate([0], out)
+        self.assertEqual(out["F"], [float("inf")])
 
         area_problem = Level2PymooProblem(
             accelerator=accelerator,
@@ -201,7 +238,13 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
     def test_power_preflight_rejects_frequency_and_pvt_mismatch(self) -> None:
         accelerator = AbstractAccelerator(
             name="a",
-            components=[AbstractComponent(name="pe_array", type="pe")],
+            components=[
+                AbstractComponent(name="pe_array", type="pe"),
+                AbstractComponent(name="rf_i1", type="register_file"),
+                AbstractComponent(name="rf_i2", type="register_file"),
+                AbstractComponent(name="rf_o", type="register_file"),
+                AbstractComponent(name="gb", type="global_buffer"),
+            ],
         )
 
         def ip(
@@ -217,39 +260,64 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
                 throughput=1,
                 delay=1,
                 fmax_mhz=fmax_mhz,
-                metadata={"macs_per_cycle": 1},
+                metadata={"macs_per_cycle": 1, "precision_bits": 8},
                 power_model=model,
             )
 
-        with self.assertRaisesRegex(ValueError, "reference frequencies"):
-            Level2PymooProblem(
-                accelerator=accelerator,
-                ip_pool=IPPool(
-                    [ip("a", power_model()), ip("b", power_model(frequency=400))]
-                ),
-                objective_names=["power"],
-                activity_profile=activity_profile(),
+        memory_ips = [
+            IPBlock(
+                id=f"{name}_ip",
+                type=ip_type,
+                area=1,
+                throughput=1,
+                delay=1,
+                fmax_mhz=600,
+                metadata={"accesses_per_cycle": 1},
+                power_model=power_model(),
             )
-        Level2PymooProblem(
+            for name, ip_type in (
+                ("rf_i1", "register_file"),
+                ("rf_i2", "register_file"),
+                ("rf_o", "register_file"),
+                ("gb", "global_buffer"),
+            )
+        ]
+        frequency_problem = Level2PymooProblem(
             accelerator=accelerator,
             ip_pool=IPPool(
                 [
-                    ip("too_slow", power_model(), fmax_mhz=400),
-                    ip("fast_enough", power_model()),
+                    ip("compatible", power_model()),
+                    ip("wrong_reference", power_model(frequency=400)),
+                    *memory_ips,
+                    dram_ip(),
                 ]
             ),
             objective_names=["power"],
             activity_profile=activity_profile(),
         )
-        with self.assertRaisesRegex(ValueError, "voltage_v"):
-            Level2PymooProblem(
-                accelerator=accelerator,
-                ip_pool=IPPool(
-                    [ip("a", power_model()), ip("b", power_model(voltage=0.9))]
-                ),
-                objective_names=["power"],
-                activity_profile=activity_profile(),
-            )
+        valid_out: dict[str, object] = {}
+        invalid_out: dict[str, object] = {}
+        frequency_problem._evaluate([0, 0, 0, 0, 0], valid_out)
+        frequency_problem._evaluate([1, 0, 0, 0, 0], invalid_out)
+        self.assertNotEqual(valid_out["F"], [float("inf")])
+        self.assertEqual(invalid_out["F"], [float("inf")])
+
+        voltage_problem = Level2PymooProblem(
+            accelerator=accelerator,
+            ip_pool=IPPool(
+                [
+                    ip("compatible", power_model()),
+                    ip("wrong_voltage", power_model(voltage=0.9)),
+                    *memory_ips,
+                    dram_ip(),
+                ]
+            ),
+            objective_names=["power"],
+            activity_profile=activity_profile(),
+        )
+        voltage_out: dict[str, object] = {}
+        voltage_problem._evaluate([1, 0, 0, 0, 0], voltage_out)
+        self.assertEqual(voltage_out["F"], [float("inf")])
 
 
 @unittest.skipUnless(
@@ -301,8 +369,13 @@ class Level2RunnerTests(unittest.TestCase):
                 "selected_ips",
                 "area",
                 "power",
-                "delay",
-                "throughput",
+                "workload_cycles_per_inference",
+                "workload_latency_s",
+                "workload_throughput_ips",
+                "reference_frequency_mhz",
+                "physical_critical_delay",
+                "physical_fmax_mhz",
+                "timing_margin_mhz",
                 "valid",
                 "objective_names",
                 "objective_values",

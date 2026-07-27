@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import math
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,29 @@ class IPPool:
         if not ip_blocks:
             raise ValueError("IPPool requires at least one IPBlock.")
         self.ip_blocks = list(ip_blocks)
+        for ip in self.ip_blocks:
+            if ip.type != "dram":
+                continue
+            try:
+                accesses_per_cycle = float(
+                    (ip.metadata or {})["accesses_per_cycle"]
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"DRAM IPBlock {ip.id!r} requires positive metadata "
+                    "'accesses_per_cycle'."
+                ) from exc
+            if (
+                ip.bandwidth_bits is None
+                or ip.bandwidth_bits <= 0
+                or ip.power_model is None
+                or not math.isfinite(accesses_per_cycle)
+                or accesses_per_cycle <= 0
+            ):
+                raise ValueError(
+                    f"DRAM IPBlock {ip.id!r} requires positive bandwidth_bits, "
+                    "power_model and metadata 'accesses_per_cycle'."
+                )
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "IPPool":

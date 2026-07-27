@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import unittest
 
 from talos.architecture.abstract_accelerator import AbstractComponent
@@ -14,14 +15,20 @@ from talos.level2.workload_power import (
 )
 
 
-def _model(idle: float, active: float) -> PowerCharacterization:
+def _model(
+    idle: float,
+    active: float,
+    *,
+    frequency_mhz: float = 100.0,
+    voltage_v: float = 1.0,
+) -> PowerCharacterization:
     return PowerCharacterization(
         source="synthetic",
         activity_method="vectorless",
-        reference_frequency_mhz=100.0,
+        reference_frequency_mhz=frequency_mhz,
         p_idle_w=idle,
         p_active_w=active,
-        voltage_v=1.0,
+        voltage_v=voltage_v,
         temperature_c=25.0,
         corner="tt",
     )
@@ -34,12 +41,24 @@ def _implemented(
     pe_count: int = 1,
 ) -> ImplementedAccelerator:
     components: list[ImplementedComponent] = []
+    memory_model = _model(
+        0,
+        0,
+        frequency_mhz=pe_model.reference_frequency_mhz,
+        voltage_v=pe_model.voltage_v or 1.0,
+    )
     for name, ip_type, count, metadata, model in (
-        ("pe_array", "pe", pe_count, {}, pe_model),
-        ("rf_i1", "register_file", 1, {"accesses_per_cycle": 1}, _model(0, 0)),
-        ("rf_i2", "register_file", 1, {"accesses_per_cycle": 1}, _model(0, 0)),
-        ("rf_o", "register_file", 1, {"accesses_per_cycle": 1}, _model(0, 0)),
-        ("gb", "global_buffer", 1, {"accesses_per_cycle": 1}, _model(0, 0)),
+        (
+            "pe_array",
+            "pe",
+            pe_count,
+            {"macs_per_cycle": 1, "precision_bits": 8},
+            pe_model,
+        ),
+        ("rf_i1", "register_file", 1, {"accesses_per_cycle": 1}, memory_model),
+        ("rf_i2", "register_file", 1, {"accesses_per_cycle": 1}, memory_model),
+        ("rf_o", "register_file", 1, {"accesses_per_cycle": 1}, memory_model),
+        ("gb", "global_buffer", 1, {"accesses_per_cycle": 1}, memory_model),
     ):
         components.append(
             ImplementedComponent(
@@ -61,6 +80,21 @@ def _implemented(
             )
         )
     return ImplementedAccelerator(components=components)
+
+
+def _dram(model: PowerCharacterization | None = None) -> IPBlock:
+    selected_model = model or _model(0, 0)
+    return IPBlock(
+        id="dram",
+        type="dram",
+        area=0,
+        throughput=1,
+        delay=1,
+        fmax_mhz=selected_model.reference_frequency_mhz,
+        bandwidth_bits=512,
+        metadata={"accesses_per_cycle": 1},
+        power_model=selected_model,
+    )
 
 
 class UtilizationTests(unittest.TestCase):
@@ -132,45 +166,161 @@ class WorkloadPowerTests(unittest.TestCase):
         result = evaluate_workload_power(
             _implemented(_model(1, 3), pe_count=32),
             profile,
+            _dram(),
         )
 
         self.assertEqual(result.power_w, 16 * 3 + 16 * 1)
 
     def test_reference_frequency_sets_time_and_fmax_only_checks_viability(self) -> None:
         profile = WorkloadActivityProfile(
-            layers=(LayerActivity("layer", 1000, 1000, 1, {}),)
+            layers=(LayerActivity("layer", 2_000_000, 2_000_000, 1, {}),)
         )
 
         result = evaluate_workload_power(
-            _implemented(_model(0, 1), fmax_mhz=160.0),
+            _implemented(
+                _model(0, 1, frequency_mhz=200.0),
+                fmax_mhz=300.0,
+            ),
             profile,
+            _dram(_model(0, 0, frequency_mhz=200.0)),
         )
 
-        self.assertAlmostEqual(result.latency_s, 1000 / 100e6)
+        self.assertEqual(result.workload_latency_s, 0.01)
         self.assertAlmostEqual(result.power_w, 1.0)
-        self.assertAlmostEqual(result.energy_j, 1000 / 100e6)
-        self.assertEqual(result.operating_frequency_mhz, 100.0)
+        self.assertAlmostEqual(result.energy_j, 0.01)
+        self.assertEqual(result.workload_cycles_per_inference, 2_000_000)
+        self.assertEqual(result.workload_throughput_ips, 100)
+        self.assertEqual(result.reference_frequency_mhz, 200.0)
+        self.assertEqual(result.reference_voltage_v, 1.0)
 
-        with self.assertRaisesRegex(ValueError, "below power reference frequency"):
+        with self.assertRaisesRegex(ValueError, "reference_frequency_above_fmax"):
             evaluate_workload_power(
                 _implemented(_model(0, 1), fmax_mhz=80.0),
                 profile,
+                _dram(),
+            )
+
+    def test_selected_operating_points_must_match(self) -> None:
+        profile = WorkloadActivityProfile(
+            layers=(LayerActivity("layer", 10, 10, 1, {}),)
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "incompatible_frequency_operating_point",
+        ):
+            evaluate_workload_power(
+                _implemented(_model(0, 1, frequency_mhz=80)),
+                profile,
+                _dram(),
+            )
+        with self.assertRaisesRegex(
+            ValueError,
+            "incompatible_voltage_operating_point",
+        ):
+            evaluate_workload_power(
+                _implemented(_model(0, 1, voltage_v=0.9)),
+                profile,
+                _dram(),
+            )
+        missing_voltage = PowerCharacterization(
+            source="synthetic",
+            activity_method="vectorless",
+            reference_frequency_mhz=100,
+            p_idle_w=0,
+            p_active_w=1,
+        )
+        with self.assertRaisesRegex(ValueError, "missing_characterization"):
+            evaluate_workload_power(
+                _implemented(missing_voltage),
+                profile,
+                _dram(),
+            )
+
+    def test_selected_ip_without_characterization_is_discarded(self) -> None:
+        implemented = _implemented(_model(0, 1))
+        pe = implemented.components[0]
+        implemented.components[0] = replace(
+            pe,
+            ip=replace(pe.ip, power_model=None),
+        )
+
+        with self.assertRaisesRegex(ValueError, "missing_characterization"):
+            evaluate_workload_power(
+                implemented,
+                WorkloadActivityProfile(
+                    layers=(LayerActivity("layer", 10, 10, 1, {}),)
+                ),
+                _dram(),
             )
 
     def test_power_includes_dram_energy_and_is_weighted_by_duration(self) -> None:
         profile = WorkloadActivityProfile(
             layers=(
-                LayerActivity("active", 10, 10, 1, {}, dram_access_energy_j=4e-8),
+                LayerActivity("active", 10, 10, 1, {"dram": 5}),
                 LayerActivity("idle", 30, 0, 0, {}),
             )
         )
 
-        result = evaluate_workload_power(_implemented(_model(0, 1)), profile)
+        result = evaluate_workload_power(
+            _implemented(_model(0, 1)),
+            profile,
+            _dram(_model(0.2, 4.2)),
+        )
 
-        self.assertAlmostEqual(result.latency_s, 4e-7)
-        self.assertAlmostEqual(result.energy_j, 1.4e-7)
-        self.assertAlmostEqual(result.power_w, 0.35)
-        self.assertNotAlmostEqual(result.power_w, 0.5)
+        self.assertAlmostEqual(result.workload_latency_s, 4e-7)
+        self.assertAlmostEqual(result.dram_energy_j, 2.8e-7)
+        self.assertAlmostEqual(result.energy_j, 3.8e-7)
+        self.assertAlmostEqual(result.power_w, 0.95)
+
+    def test_pe_capacity_and_precision_are_validated_per_layer(self) -> None:
+        implemented = _implemented(_model(0, 1))
+        with self.assertRaisesRegex(ValueError, "insufficient_pe_capacity"):
+            evaluate_workload_power(
+                implemented,
+                WorkloadActivityProfile(
+                    layers=(LayerActivity("layer", 10, 11, 1, {}),)
+                ),
+                _dram(),
+            )
+        with self.assertRaisesRegex(ValueError, "incompatible_precision"):
+            evaluate_workload_power(
+                implemented,
+                WorkloadActivityProfile(
+                    layers=(
+                        LayerActivity(
+                            "layer",
+                            10,
+                            10,
+                            1,
+                            {},
+                            {"I": 16, "W": 8},
+                        ),
+                    )
+                ),
+                _dram(),
+            )
+
+    def test_memory_capacity_discards_a_workload_with_one_bad_layer(self) -> None:
+        implemented = _implemented(_model(0, 0))
+        exact = WorkloadActivityProfile(
+            layers=(LayerActivity("exact", 10, 0, 0, {"gb": 10}),)
+        )
+        self.assertEqual(
+            evaluate_workload_power(implemented, exact, _dram()).power_w,
+            0,
+        )
+
+        with self.assertRaisesRegex(ValueError, "insufficient_memory_bandwidth"):
+            evaluate_workload_power(
+                implemented,
+                WorkloadActivityProfile(
+                    layers=(
+                        LayerActivity("ok", 10, 0, 0, {"gb": 10}),
+                        LayerActivity("bad", 10, 0, 0, {"gb": 11}),
+                    )
+                ),
+                _dram(),
+            )
 
 
 if __name__ == "__main__":

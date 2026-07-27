@@ -200,21 +200,20 @@ ips:
     area: 0.0
     throughput: 1.0
     delay: 20.0
-    fmax_mhz: 400.0
+    fmax_mhz: 500.0
     bandwidth_bits: 1024
     metadata:
       accesses_per_cycle: 1
-      disclaimer: "Synthetic example values only; DRAM is excluded from Level 2 power."
+      disclaimer: "Synthetic effective off-chip DRAM plus PHY power; replace with a measured characterization."
     power_model:
       source: synthetic
-      activity_method: vectorless
-      reference_frequency_mhz: 400.0
-      p_idle_w: 10.0
-      p_active_w: 50.0
+      activity_method: access_rate
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.02
+      p_active_w: 8.98
       voltage_v: 1.0
       temperature_c: 25.0
       corner: tt
       metadata:
-        idle_mode: "Clock active, no valid memory access."
-        active_mode: "One generic memory access per cycle."
-        active_access_mix: "Synthetic representative read/write mix."
+        idle_mode: "DRAM available with no data transfer."
+        active_mode: "One 1024-bit access per cycle."
