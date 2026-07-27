@@ -14,7 +14,8 @@ The project is a research prototype: the included IP values are examples or synt
    - Converts each Level 1 candidate into an abstract component graph.
    - Selects compatible PE, register-file, and global-buffer IP blocks.
    - Uses either NSGA-II or exhaustive enumeration.
-   - Evaluates physical area, delay, throughput, average power, and total workload energy.
+   - Evaluates physical timing separately from workload latency and throughput.
+   - Validates that selected IPs can sustain the mapping, then reports average power and energy per inference.
 3. **Reporting and sweeps**
    - Exports Level 1, Level 2, and combined CSV reports.
    - Supports area, power, latency, and frequency constraints.
@@ -31,8 +32,8 @@ flowchart LR
     E --> F[Abstract component graph]
     G[Characterized IP pool YAML] --> H[Level 2 genome]
     F --> H
-    C --> I[Per-layer activity profile]
-    I --> J[Workload power and energy model]
+    C --> I[Per-layer mapping profile]
+    I --> J[Workload performance, capacity, power and energy]
     H --> K{Level 2 strategy}
     K -->|NSGA-II| L[Physical implementations]
     K -->|Exhaustive| L
@@ -63,7 +64,9 @@ Each gene is an integer index into a fixed catalog:
 | `gb_bw_code` | 64, 128, 256, 512, 1024 bits/cycle |
 | `gb_served_dims_code` | none, D1, D2, or D1+D2 |
 
-DRAM bandwidth is currently a fixed platform value of 512 bits/cycle. It is not a search gene because TALOS does not yet model the physical cost of the external memory interface.
+DRAM is a fixed platform IP rather than a search gene. Its bus width, access
+rate, and idle/active power come from the single `type: dram` entry in the IP
+pool; standalone Level 1 runs default to a 512-bit synthetic DRAM.
 
 ### Level 1 to Level 2
 
@@ -111,6 +114,11 @@ and the actual number of global-buffer replicas implied by
 `gb_served_dims`. It is useful for Level 1 ranking, but physical constraints
 still use characterized Level 2 area.
 
+The Level 1 objectives also select ZigZag's mapping criterion. Energy objectives
+use `energy`, latency objectives use `latency`, and a mix of both uses `EDP`;
+area alone falls back to `EDP`. The selected criterion is reused when the final
+candidate profile is generated for Level 2.
+
 ### Level 2 objectives
 
 | Objective | Meaning |
@@ -118,22 +126,58 @@ still use characterized Level 2 area.
 | `area` | Sum of selected IP area × instance count |
 | `energy` | Total energy in joules for one workload inference |
 | `power` | Average workload power in watts |
-| `delay` | Maximum delay among selected IPs |
-| `inv_throughput` | Reciprocal of the minimum selected-IP throughput |
+| `workload_latency_s` | Sequential batch-1 inference latency from ZigZag mapping cycles |
+| `delay` | Legacy physical objective: maximum selected-IP delay |
+| `inv_throughput` | Legacy local-IP objective; not inference throughput |
 
-For power-aware exploration, TALOS reuses the mapping selected by ZigZag. For each layer it extracts the latency, spatially used PEs, physical accesses at every memory level, and DRAM access energy. PE power directly distinguishes mapped active PEs from the remaining idle PEs. Memory power is interpolated from access utilization:
+Level 2 does not reinterpret an IP delay or local throughput as workload
+performance. It preserves the cycles selected by ZigZag and computes:
+
+```text
+workload_cycles_per_inference = Σ layer_cycles_mapping
+workload_latency_s =
+    workload_cycles_per_inference / (reference_frequency_mhz × 1e6)
+workload_throughput_ips = 1 / workload_latency_s
+```
+
+This assumes batch 1, sequential layers, and no pipeline between inferences.
+At the same reference frequency, every valid implementation of the same
+mapping has the same workload latency. A faster physical `fmax_mhz` only
+increases timing margin; TALOS does not automatically run that candidate faster.
+
+For workload-aware exploration, TALOS reuses the mapping selected by ZigZag. For each layer it extracts the latency, spatially used PEs, and physical accesses at every memory level. PE power directly distinguishes mapped active PEs from the remaining idle PEs. On-chip memory and DRAM power are interpolated from access utilization:
 
 ```text
 P_PE = active_PEs × p_active_w + idle_PEs × p_idle_w
 P_memory = instances × (p_idle_w + utilization × (p_active_w - p_idle_w))
+u_DRAM = DRAM_accesses / (layer_cycles × accesses_per_cycle)
+P_DRAM = p_idle_w + u_DRAM × (p_active_w - p_idle_w)
 layer_time = layer_cycles / reference_frequency
-E_inference = E_DRAM + Σ(P_layer × layer_time)
+E_inference = Σ((P_PE + P_memories + P_DRAM) × layer_time)
 P_average = E_inference / inference_time
 ```
 
-For example, if ZigZag maps a layer onto 16 of `N` PEs, the PE term is exactly `16 × p_active_w + (N - 16) × p_idle_w`. Register-file and global-buffer utilization comes from the accesses in the ZigZag mapping. DRAM remains external to Level 2 area and contributes the per-access energy reported by ZigZag.
+For example, if ZigZag maps a layer onto 16 of `N` PEs, the PE term is exactly `16 × p_active_w + (N - 16) × p_idle_w`. Register-file, global-buffer, and DRAM utilization comes from the accesses in the ZigZag mapping. DRAM remains external to Level 2 on-chip area and on-chip critical timing, but its power and energy are included and its own `fmax_mhz` must still reach the reference frequency. Its `p_active_w` means continuous transfers at the declared bus width and `accesses_per_cycle`; `p_idle_w` means no transfers.
+
+For Level 1, TALOS converts that same DRAM power characterization into the
+dynamic cost ZigZag expects:
+
+```text
+E_dynamic_per_access =
+    (p_active_w - p_idle_w)
+    / (reference_frequency × accesses_per_cycle)
+```
+
+The idle term is then integrated over workload latency, so Level 1 and Level 2
+use the same characterized point.
 
 Memory accesses are normalized from the abstract Level 1 port width to the selected IP width. All selected IPs operate at their common `reference_frequency_mhz`, so workload time, energy, and inferences per second use the same characterized point. Power values are used exactly as characterized, without frequency scaling. Every selected IP must have `fmax_mhz >= reference_frequency_mhz`; `fmax_mhz` is otherwise only a capability metric and feasibility filter.
+
+For each layer, Level 2 also checks that mapped MACs/cycle fit the active PEs'
+`macs_per_cycle`, that PE input precision is compatible, and that normalized
+memory accesses/cycle fit the selected instances and `accesses_per_cycle`.
+Current ZigZag profiles expose aggregate physical accesses per memory level, so
+read/write and operand contention are intentionally checked as one shared rate.
 
 For a composite PE, `p_idle_w` includes the idle baseline of its covered RFs and
 `p_active_w - p_idle_w` is the compute-only active increment. TALOS therefore
@@ -149,7 +193,7 @@ P_composite =
 This contract avoids counting the covered RF idle power twice. Standalone RFs
 continue to use the full memory formula above.
 
-The `energy` and `power` objectives use the same model: `energy` minimizes joules per inference, while `power` minimizes time-weighted average watts. Level 2 still evaluates characterized IP area, implementation `fmax`, delay, throughput, and all configured constraints independently of these objectives.
+The `energy` and `power` objectives use the same model: `energy` minimizes joules per inference, while `power` minimizes time-weighted average watts. Physical timing is reported separately as `physical_critical_delay`, `physical_fmax_mhz`, and `timing_margin_mhz`.
 
 ### User constraints
 
@@ -214,7 +258,7 @@ python examples/full_flow_example.py \
   --level1-objectives latency energy area \
   --level1-pop-size 12 \
   --level1-generations 3 \
-  --level2-objectives area energy delay \
+  --level2-objectives area energy workload_latency_s \
   --level2-strategy nsga2 \
   --level2-pop-size 24 \
   --level2-generations 4 \
@@ -233,7 +277,7 @@ python examples/full_flow_example.py \
   --workload workloads/alexnet.onnx \
   --ip-pool configs/ip_pool_synthetic_28nm.yaml \
   --level1-objectives latency energy area \
-  --level2-objectives area energy delay \
+  --level2-objectives area energy workload_latency_s \
   --max-latency-cycles 100000000 \
   --max-area-mm2 6.0 \
   --max-power-w 1.2 \
@@ -311,7 +355,7 @@ IP pools are YAML files with an `ips` list. The two included pools are:
 - `configs/ip_pool_example.yaml`: illustrative values for small examples.
 - `configs/ip_pool_synthetic_28nm.yaml`: synthetic values used by tests and sweeps; they are not foundry characterization.
 
-The synthetic pool contains 2 PE, 4 register-file, and 7 global-buffer choices. It covers every Level 1 genome and produces at most 896 compatible Level 2 combinations for one architecture, so exhaustive selection is normally preferable. Add variants only from a coherent characterization flow rather than inventing extra points for population size.
+The synthetic pool contains 2 PE, 4 register-file, 7 global-buffer choices, and one fixed DRAM. It covers every Level 1 genome and produces at most 896 compatible Level 2 combinations for one architecture, so exhaustive selection is normally preferable. Add variants only from a coherent characterization flow rather than inventing extra points for population size.
 
 A minimal PE entry looks like this:
 
@@ -324,6 +368,7 @@ ips:
     delay: 0.6
     fmax_mhz: 900.0
     metadata:
+      precision_bits: 8
       macs_per_cycle: 1
     power_model:
       source: synthetic
@@ -336,6 +381,10 @@ ips:
       corner: tt
 ```
 
+`metadata.macs_per_cycle` and `metadata.precision_bits` validate the frozen
+mapping. The generic `throughput` field is retained for legacy local-IP
+objectives and is not used as inference throughput.
+
 If that PE characterization already includes RF RTL, declare the covered roles
 and reference ordinary RF entries from the same pool:
 
@@ -347,6 +396,9 @@ ips:
     throughput: 2.0
     delay: 0.7
     fmax_mhz: 800.0
+    metadata:
+      precision_bits: 8
+      macs_per_cycle: 1
     included_rfs:
       rf_i1: rf_512b_64b
       rf_i2: rf_512b_64b
@@ -392,12 +444,47 @@ abstract PE component (`pe_array`).
 
 Memory IPs additionally use `capacity_bits`, `bandwidth_bits`, and `metadata.accesses_per_cycle`.
 
-`p_idle_w` and `p_active_w` are per-instance power values used directly by the estimator. `reference_frequency_mhz` is both their characterization point and the operating frequency used to convert workload cycles into seconds. All compatible candidates in a power-aware search must use the same reference frequency and must meet it with their `fmax_mhz`; no frequency scaling is applied. `voltage_v` records the characterization voltage and is checked for compatibility; it is not added or multiplied into the energy calculation. The included values are synthetic, but real values can be obtained from two Genus power scenarios: clocked idle and representative active operation.
+The pool must contain one DRAM characterization:
 
-Energy or power exploration requires every compatible candidate IP to provide:
+```yaml
+  - id: dram_ddr_512b
+    type: dram
+    area: 0.0
+    throughput: 1.0
+    delay: 20.0
+    fmax_mhz: 500.0
+    bandwidth_bits: 512
+    metadata:
+      accesses_per_cycle: 1
+    power_model:
+      source: synthetic
+      activity_method: access_rate
+      reference_frequency_mhz: 500.0
+      p_idle_w: 0.02
+      p_active_w: 4.5
+      voltage_v: 1.0
+      temperature_c: 25.0
+      corner: tt
+```
+
+This synthetic `p_active_w` represents one 512-bit transfer each cycle for the
+whole external-memory subsystem, including the PHY. Replace it with a measured
+point for the target memory and access pattern; vendor tools such as the
+[Micron DRAM Power Calculator](https://www.micron.com/sales-support/design-tools/dram-power-calculator)
+are suitable calibration sources.
+
+`p_idle_w` and `p_active_w` are per-instance power values used directly by the estimator. `reference_frequency_mhz` is both their characterization point and the operating frequency used to convert workload cycles into seconds. Every IP selected in one combination must use the same reference frequency and must meet it with its `fmax_mhz`; incompatible candidates are discarded rather than aborting the whole pool. No frequency scaling is applied. `voltage_v` records the characterization voltage and is checked for compatibility; it is not added or multiplied into the energy calculation. The included values are synthetic, but real values can be obtained from two Genus power scenarios: clocked idle and representative active operation.
+
+The current YAML schema represents one operating point per IP, so its top-level
+area, delay, and `fmax_mhz` are assumed to belong to that same characterized
+voltage and corner. TALOS does not interpolate operating points.
+
+Workload-aware exploration requires each selected IP to provide:
 
 - `fmax_mhz`;
 - `p_idle_w` and `p_active_w`;
+- `voltage_v`;
+- `macs_per_cycle` and `precision_bits` for PEs;
 - `accesses_per_cycle` for memories;
 - compatible voltage, temperature, and process corner.
 
@@ -421,13 +508,17 @@ The combined summary contains columns for:
 - decoded architecture parameters;
 - selected Level 2 IPs and RF roles covered by a composite PE;
 - objective values;
-- physical area, power, energy, latency, delay, throughput, and `fmax`;
-- DRAM accesses and DRAM access energy;
+- `layer_cycles_mapping`, `workload_cycles_per_inference`, `workload_latency_s`, and `workload_throughput_ips`;
+- `reference_frequency_mhz` and `reference_voltage_v`;
+- physical area, power, energy, critical delay, `fmax`, and timing margin;
+- DRAM accesses and total DRAM energy;
 - constraint status and violations;
 - estimated inferences per second;
 - paths to the detailed Level 1 and Level 2 CSVs.
 
-Power, energy, workload latency, and `inferences_per_second` are populated when the selected objectives or constraints require the corresponding workload evaluation.
+The complete Level 1 → Level 2 flow always generates one mapping profile per
+selected Level 1 architecture, so workload performance, power, and energy remain
+comparable even when they are not optimization objectives.
 
 Generated `results/`, `outputs/`, and `.talos_zigzag/` directories are ignored by Git.
 
@@ -457,10 +548,15 @@ result = run_level2(
 )
 
 for solution in result.solutions[:3]:
-    print(solution["selected_ips"], solution["area"], solution["delay"])
+    print(
+        solution["selected_ips"],
+        solution["area"],
+        solution["physical_critical_delay"],
+    )
 ```
 
-For `energy` or `power`, also pass the `WorkloadActivityProfile` produced by a Level 1 ZigZag evaluation.
+For `energy`, `power`, or `workload_latency_s`, also pass the
+`WorkloadActivityProfile` produced by the selected Level 1 ZigZag mapping.
 
 ## Development
 
@@ -484,10 +580,11 @@ python examples/objective_sweep.py --help
 - The repository is a research prototype, not a calibrated PPA sign-off flow.
 - The synthetic 28 nm pool exists for repeatable tests and exploration only.
 - Level 1 area is an analytical proxy unless a backend provides a physical area result.
-- DRAM bandwidth is fixed and DRAM is excluded from Level 2 on-chip area and power; DRAM access energy is still included in workload energy.
-- All compatible candidate IPs in a power-aware search must share one characterization frequency and PVT point.
+- DRAM is a fixed platform characterization and is excluded only from Level 2 on-chip area; its workload power and energy are included.
+- All compatible candidate IPs in a workload-aware search must share one characterization frequency and PVT point; characterization tables and interpolation are not implemented.
+- Memory capacity validation is aggregate per layer and memory level because the current profile does not retain independent read/write ports or operand contention.
 - Composite IP modeling currently covers only a PE with embedded RF roles; generic nested IP bundles are intentionally unsupported.
-- `inv_throughput` is only useful when a pool provides commensurate, varied throughput values; the synthetic pool is primarily calibrated for area, energy, delay, and `fmax`.
+- `delay` and `inv_throughput` are legacy local-IP objectives, not workload performance; use `workload_latency_s` for inference performance.
 - Exhaustive Level 2 runtime grows as the product of compatible candidates per component.
 
 ## Main dependencies

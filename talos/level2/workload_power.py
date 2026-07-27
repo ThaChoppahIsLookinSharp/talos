@@ -4,8 +4,12 @@ from dataclasses import dataclass
 import math
 from typing import Any
 
-from talos.evaluation.workload_activity import LayerActivity, WorkloadActivityProfile
-from talos.ip.ip_characterization import PowerCharacterization
+from talos.evaluation.workload_activity import (
+    LayerActivity,
+    WorkloadActivityProfile,
+    compute_workload_performance,
+)
+from talos.ip.ip_characterization import IPBlock, PowerCharacterization
 from talos.level2.genome import (
     ImplementedAccelerator,
     ImplementedComponent,
@@ -15,8 +19,8 @@ from talos.level2.genome import (
 
 UTILIZATION_TOLERANCE = 1e-5
 MEMORY_COMPONENT_NAMES = ("rf_i1", "rf_i2", "rf_o", "gb")
-POWER_REQUIREMENTS_ERROR = (
-    "Workload energy/power exploration requires a workload activity profile and "
+WORKLOAD_REQUIREMENTS_ERROR = (
+    "Workload-aware exploration requires a workload activity profile and "
     "compatible p_idle/p_active characterizations for all candidate IPs."
 )
 
@@ -25,13 +29,19 @@ POWER_REQUIREMENTS_ERROR = (
 class WorkloadPowerResult:
     power_w: float
     energy_j: float
-    latency_s: float
-    operating_frequency_mhz: float
+    dram_energy_j: float
+    layer_cycles_mapping: tuple[tuple[str, float], ...]
+    workload_cycles_per_inference: float
+    workload_latency_s: float
+    workload_throughput_ips: float
+    reference_frequency_mhz: float
+    reference_voltage_v: float | None
 
 
 def evaluate_workload_power(
     implemented: ImplementedAccelerator,
     profile: WorkloadActivityProfile,
+    dram_ip: IPBlock,
 ) -> WorkloadPowerResult:
     components = {
         component.abstract_component.name: component
@@ -50,11 +60,16 @@ def evaluate_workload_power(
             raise ValueError(f"Workload power requires component {name!r}.")
     physical_components(implemented.components)
 
-    operating_frequency_mhz = _validate_selected_characterizations(
-        implemented.components
+    operating_point = _validate_selected_characterizations(
+        implemented.components,
+        dram_ip,
     )
-    energy_j = profile.total_dram_access_energy_j
-    latency_s = 0.0
+    performance = compute_workload_performance(
+        profile,
+        operating_point.reference_frequency_mhz,
+    )
+    energy_j = 0.0
+    dram_energy_j = 0.0
 
     for layer in profile.layers:
         layer_power_w = _pe_power(pe_component, layer)
@@ -64,56 +79,61 @@ def evaluate_workload_power(
                 layer,
                 layer.memory_accesses.get(name, 0.0),
             )
+        dram_power_w = _dram_power(dram_ip, layer)
+        layer_power_w += dram_power_w
         layer_latency_s = layer.latency_cycles / (
-            operating_frequency_mhz * 1_000_000.0
+            operating_point.reference_frequency_mhz * 1_000_000.0
         )
         energy_j += layer_power_w * layer_latency_s
-        latency_s += layer_latency_s
+        dram_energy_j += dram_power_w * layer_latency_s
 
-    if latency_s <= 0:
-        raise ValueError("Workload power requires positive total latency.")
     return WorkloadPowerResult(
-        power_w=energy_j / latency_s,
+        power_w=energy_j / performance.workload_latency_s,
         energy_j=energy_j,
-        latency_s=latency_s,
-        operating_frequency_mhz=operating_frequency_mhz,
+        dram_energy_j=dram_energy_j,
+        layer_cycles_mapping=performance.layer_cycles_mapping,
+        workload_cycles_per_inference=(
+            performance.workload_cycles_per_inference
+        ),
+        workload_latency_s=performance.workload_latency_s,
+        workload_throughput_ips=performance.workload_throughput_ips,
+        reference_frequency_mhz=operating_point.reference_frequency_mhz,
+        reference_voltage_v=operating_point.voltage_v,
     )
 
 
-def validate_power_aware_exploration(
+def validate_workload_aware_exploration(
     spec: Any,
     profile: WorkloadActivityProfile | None,
+    dram_ip: IPBlock,
 ) -> None:
     if profile is None:
-        raise ValueError(f"{POWER_REQUIREMENTS_ERROR} Activity profile is missing.")
+        raise ValueError(f"{WORKLOAD_REQUIREMENTS_ERROR} Activity profile is missing.")
 
-    characterized: list[tuple[str, PowerCharacterization, float | None]] = []
-    for gene in spec.genes:
-        for ip in gene.candidates:
-            if ip.power_model is None:
-                raise ValueError(
-                    f"{POWER_REQUIREMENTS_ERROR} IP {ip.id!r} has no power_model."
-                )
-            if gene.component.type != "pe":
-                _positive_metadata(ip.metadata, "accesses_per_cycle", ip.id)
-            characterized.append((ip.id, ip.power_model, ip.fmax_mhz))
-            if (
-                gene.component.type == "pe"
-                and ip.included_rfs
-                and ip.included_rf_power_mode != "parent_idle_baseline"
-            ):
-                raise ValueError(
-                    f"{POWER_REQUIREMENTS_ERROR} Composite PE {ip.id!r} must "
-                    "use included_rf_power_mode='parent_idle_baseline'."
-                )
-
-    _validate_characterizations(characterized, require_operable=False)
+    if dram_ip.power_model is None:
+        raise ValueError(
+            f"{WORKLOAD_REQUIREMENTS_ERROR} DRAM IP {dram_ip.id!r} has no power_model."
+        )
+    if dram_ip.bandwidth_bits is None or dram_ip.bandwidth_bits <= 0:
+        raise ValueError(
+            f"{WORKLOAD_REQUIREMENTS_ERROR} DRAM IP {dram_ip.id!r} requires "
+            "positive bandwidth_bits."
+        )
+    _positive_metadata(dram_ip.metadata, "accesses_per_cycle", dram_ip.id)
+    _validate_characterizations(
+        [(dram_ip.id, dram_ip.power_model, dram_ip.fmax_mhz)],
+        require_operable=False,
+    )
+    compute_workload_performance(
+        profile,
+        dram_ip.power_model.reference_frequency_mhz,
+    )
 
     pe_counts = [
         gene.component.count for gene in spec.genes if gene.component.type == "pe"
     ]
     if len(pe_counts) != 1:
-        raise ValueError(f"{POWER_REQUIREMENTS_ERROR} Exactly one PE component is required.")
+        raise ValueError(f"{WORKLOAD_REQUIREMENTS_ERROR} Exactly one PE component is required.")
     for layer in profile.layers:
         if layer.spatially_used_pes > pe_counts[0]:
             raise ValueError(
@@ -139,7 +159,39 @@ def _pe_power(
         )
     if layer.mac_count > 0 and active_count == 0:
         raise ValueError(
-            f"Layer {layer.layer_id!r} executes MACs but uses no PEs spatially."
+            f"insufficient_pe_capacity: layer {layer.layer_id!r} executes MACs "
+            "but uses no PEs spatially."
+        )
+    required_macs_per_cycle = layer.mac_count / layer.latency_cycles
+    available_macs_per_cycle = active_count * _positive_metadata(
+        component.ip.metadata,
+        "macs_per_cycle",
+        component.ip.id,
+    )
+    if required_macs_per_cycle > available_macs_per_cycle + UTILIZATION_TOLERANCE:
+        raise ValueError(
+            f"insufficient_pe_capacity: layer {layer.layer_id!r} requires "
+            f"{required_macs_per_cycle} MAC/cycle but selected PE instances "
+            f"provide {available_macs_per_cycle}."
+        )
+    required_precision = max(
+        (
+            bits
+            for operand, bits in layer.operand_precision_bits.items()
+            if operand in {"I", "W"}
+        ),
+        default=None,
+    )
+    selected_precision = _positive_metadata(
+        component.ip.metadata,
+        "precision_bits",
+        component.ip.id,
+    )
+    if required_precision is not None and required_precision > selected_precision:
+        raise ValueError(
+            f"incompatible_precision: layer {layer.layer_id!r} requires "
+            f"{required_precision}-bit inputs but selected PE "
+            f"{component.ip.id!r} supports {selected_precision:g} bits."
         )
     model = _power_model(component)
     return (
@@ -181,6 +233,25 @@ def _memory_power(
     return _component_power_w(count, utilization, _power_model(component))
 
 
+def _dram_power(ip: IPBlock, layer: LayerActivity) -> float:
+    model = ip.power_model
+    if model is None:
+        raise ValueError(f"DRAM IP {ip.id!r} has no power_model.")
+    utilization = _memory_utilization(
+        accesses=layer.memory_accesses.get("dram", 0.0),
+        latency_cycles=layer.latency_cycles,
+        instance_count=1,
+        accesses_per_cycle=_positive_metadata(
+            ip.metadata,
+            "accesses_per_cycle",
+            ip.id,
+        ),
+        memory_name="dram",
+        layer_id=layer.layer_id,
+    )
+    return _component_power_w(1, utilization, model)
+
+
 def _memory_utilization(
     *,
     accesses: float,
@@ -189,6 +260,7 @@ def _memory_utilization(
     accesses_per_cycle: float,
     memory_name: str = "memory",
     layer_id: str = "",
+    tolerance: float = UTILIZATION_TOLERANCE,
 ) -> float:
     if accesses_per_cycle <= 0 or not math.isfinite(accesses_per_cycle):
         raise ValueError("accesses_per_cycle must be finite and > 0.")
@@ -206,14 +278,24 @@ def _memory_utilization(
     return _validate_utilization(
         utilization,
         f"Memory {memory_name!r} utilization for layer {layer_id!r}",
+        tolerance,
     )
 
 
-def _validate_utilization(value: float, label: str) -> float:
+def _validate_utilization(
+    value: float,
+    label: str,
+    tolerance: float = UTILIZATION_TOLERANCE,
+) -> float:
     if not math.isfinite(value) or value < 0:
         raise ValueError(f"{label} must be finite and >= 0.")
-    if value > 1.0 + UTILIZATION_TOLERANCE:
-        raise ValueError(f"{label} exceeds 1: {value}.")
+    if value > 1.0 + tolerance:
+        direction = (
+            "insufficient_memory_bandwidth"
+            if "dram" not in label.lower()
+            else "insufficient_dram_bandwidth"
+        )
+        raise ValueError(f"{direction}: {label} exceeds 1: {value}.")
     return min(value, 1.0)
 
 
@@ -232,7 +314,10 @@ def _component_power_w(
 def _power_model(component: ImplementedComponent) -> PowerCharacterization:
     model = component.ip.power_model
     if model is None:
-        raise ValueError(f"Selected IP {component.ip.id!r} has no power_model.")
+        raise ValueError(
+            f"missing_characterization: selected IP "
+            f"{component.ip.id!r} has no power_model."
+        )
     return model
 
 
@@ -244,19 +329,29 @@ def _positive_metadata(
     try:
         value = float((metadata or {})[name])
     except (KeyError, TypeError, ValueError) as exc:
-        raise ValueError(f"IP {ip_id!r} requires positive metadata {name!r}.") from exc
+        raise ValueError(
+            f"missing_characterization: IP {ip_id!r} requires positive "
+            f"metadata {name!r}."
+        ) from exc
     if not math.isfinite(value) or value <= 0:
-        raise ValueError(f"IP {ip_id!r} requires positive metadata {name!r}.")
+        raise ValueError(
+            f"missing_characterization: IP {ip_id!r} requires positive "
+            f"metadata {name!r}."
+        )
     return value
 
 
 def _validate_selected_characterizations(
     components: list[ImplementedComponent],
-) -> float:
+    dram_ip: IPBlock,
+) -> PowerCharacterization:
     characterized = [
         (component.ip.id, _power_model(component), component.ip.fmax_mhz)
         for component in components
     ]
+    if dram_ip.power_model is None:
+        raise ValueError(f"DRAM IP {dram_ip.id!r} has no power_model.")
+    characterized.append((dram_ip.id, dram_ip.power_model, dram_ip.fmax_mhz))
     return _validate_characterizations(characterized)
 
 
@@ -264,25 +359,44 @@ def _validate_characterizations(
     characterized: list[tuple[str, PowerCharacterization, float | None]],
     *,
     require_operable: bool = True,
-) -> float:
+) -> PowerCharacterization:
     if not characterized:
         raise ValueError("No characterized IPs were provided.")
+    for ip_id, model, _fmax in characterized:
+        if model.voltage_v is None:
+            raise ValueError(
+                f"missing_characterization: selected IP {ip_id!r} has no "
+                "reference voltage_v."
+            )
     frequencies = {
         model.reference_frequency_mhz for _id, model, _fmax in characterized
     }
     if len(frequencies) != 1:
-        raise ValueError("Selected IPs have incompatible reference frequencies.")
+        raise ValueError(
+            "incompatible_frequency_operating_point: selected IPs have "
+            "different reference_frequency_mhz values."
+        )
     for field in ("corner", "voltage_v", "temperature_c"):
         if len({getattr(model, field) for _id, model, _fmax in characterized}) != 1:
-            raise ValueError(f"Selected IPs have incompatible power {field} values.")
+            code = (
+                "incompatible_voltage_operating_point"
+                if field == "voltage_v"
+                else "incompatible_operating_point"
+            )
+            raise ValueError(
+                f"{code}: selected IPs have different {field} values."
+            )
 
-    operating_frequency_mhz = frequencies.pop()
+    reference_frequency_mhz = frequencies.pop()
     for ip_id, _model, fmax_mhz in characterized:
         if fmax_mhz is None:
-            raise ValueError(f"Selected IP {ip_id!r} has no fmax_mhz.")
-        if require_operable and fmax_mhz < operating_frequency_mhz:
             raise ValueError(
-                f"Selected IP {ip_id!r} fmax_mhz {fmax_mhz} is below power "
-                f"reference frequency {operating_frequency_mhz}."
+                f"missing_characterization: selected IP {ip_id!r} has no fmax_mhz."
             )
-    return operating_frequency_mhz
+        if require_operable and fmax_mhz < reference_frequency_mhz:
+            raise ValueError(
+                f"reference_frequency_above_fmax: selected IP {ip_id!r} "
+                f"fmax_mhz {fmax_mhz} is below reference_frequency_mhz "
+                f"{reference_frequency_mhz}."
+            )
+    return characterized[0][1]

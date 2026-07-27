@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 from typing import Any
 
 from zigzag.hardware.architecture.memory_port import DataDirection
-
-
-PICOJOULE_TO_JOULE = 1e-12
 
 
 @dataclass(frozen=True)
@@ -17,7 +14,7 @@ class LayerActivity:
     mac_count: float
     spatially_used_pes: int
     memory_accesses: dict[str, float]
-    dram_access_energy_j: float = 0.0
+    operand_precision_bits: dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.layer_id.strip():
@@ -37,12 +34,12 @@ class LayerActivity:
                 raise ValueError(
                     f"LayerActivity accesses for {name!r} must be finite and >= 0."
                 )
-        if (
-            not math.isfinite(self.dram_access_energy_j)
-            or self.dram_access_energy_j < 0
+        if not isinstance(self.operand_precision_bits, dict) or any(
+            not name.strip() or not isinstance(bits, int) or bits <= 0
+            for name, bits in self.operand_precision_bits.items()
         ):
             raise ValueError(
-                "LayerActivity dram_access_energy_j must be finite and >= 0."
+                "LayerActivity operand precisions must be named positive integers."
             )
 
 
@@ -62,9 +59,44 @@ class WorkloadActivityProfile:
     def total_dram_accesses(self) -> float:
         return sum(layer.memory_accesses.get("dram", 0.0) for layer in self.layers)
 
-    @property
-    def total_dram_access_energy_j(self) -> float:
-        return sum(layer.dram_access_energy_j for layer in self.layers)
+
+@dataclass(frozen=True)
+class WorkloadPerformance:
+    layer_cycles_mapping: tuple[tuple[str, float], ...]
+    workload_cycles_per_inference: float
+    workload_latency_s: float
+    workload_throughput_ips: float
+
+
+def compute_workload_performance(
+    profile: WorkloadActivityProfile,
+    reference_frequency_mhz: float,
+) -> WorkloadPerformance:
+    """Batch-1 sequential inference performance at the characterized clock."""
+    if (
+        not math.isfinite(reference_frequency_mhz)
+        or reference_frequency_mhz <= 0
+    ):
+        raise ValueError("reference_frequency_mhz must be finite and > 0.")
+    layer_cycles = tuple(
+        (layer.layer_id, layer.latency_cycles) for layer in profile.layers
+    )
+    total_cycles = sum(cycles for _layer_id, cycles in layer_cycles)
+    if not math.isfinite(total_cycles) or total_cycles <= 0:
+        raise ValueError("workload_cycles_per_inference must be finite and > 0.")
+    latency_s = total_cycles / (reference_frequency_mhz * 1_000_000.0)
+    throughput_ips = 1.0 / latency_s
+    if not all(
+        math.isfinite(value) and value > 0
+        for value in (latency_s, throughput_ips)
+    ):
+        raise ValueError("Workload performance must be finite and > 0.")
+    return WorkloadPerformance(
+        layer_cycles_mapping=layer_cycles,
+        workload_cycles_per_inference=total_cycles,
+        workload_latency_s=latency_s,
+        workload_throughput_ips=throughput_ips,
+    )
 
 
 _MEMORY_BINDINGS = {
@@ -94,7 +126,6 @@ def _unwrap_cme(value: Any) -> Any:
 def _extract_layer_activity(cme: Any) -> LayerActivity:
     layer = cme.layer
     memory_accesses: dict[str, float] = {}
-    dram_access_energy_j = 0.0
 
     for layer_operand, accesses_per_level in cme.memory_word_access.items():
         memory_operand = cme.memory_operand_links.layer_to_mem_op(layer_operand)
@@ -108,7 +139,6 @@ def _extract_layer_activity(cme: Any) -> LayerActivity:
             )
             if memory_name.lower() == "dram":
                 target = "dram"
-                dram_access_energy_j += _dram_access_energy_j(level, accesses)
             else:
                 target = _MEMORY_BINDINGS.get((str(memory_operand), memory_name))
                 if target is None:
@@ -125,27 +155,15 @@ def _extract_layer_activity(cme: Any) -> LayerActivity:
         mac_count=float(layer.total_mac_count),
         spatially_used_pes=_spatially_used_pes(cme),
         memory_accesses=memory_accesses,
-        dram_access_energy_j=dram_access_energy_j,
+        operand_precision_bits={
+            str(operand): int(bits)
+            for operand, bits in getattr(
+                getattr(layer, "operand_precision", None),
+                "data",
+                {},
+            ).items()
+        },
     )
-
-
-def _dram_access_energy_j(level: Any, accesses: Any) -> float:
-    read_energy_pj = float(level.read_energy)
-    write_energy_pj = float(level.write_energy)
-    if any(
-        not math.isfinite(value) or value < 0
-        for value in (read_energy_pj, write_energy_pj)
-    ):
-        raise ValueError("ZigZag DRAM read/write energy must be finite and >= 0.")
-    reads = accesses.get(DataDirection.RD_OUT_TO_LOW) + accesses.get(
-        DataDirection.RD_OUT_TO_HIGH
-    )
-    writes = accesses.get(DataDirection.WR_IN_BY_LOW) + accesses.get(
-        DataDirection.WR_IN_BY_HIGH
-    )
-    return float(
-        reads * read_energy_pj + writes * write_energy_pj
-    ) * PICOJOULE_TO_JOULE
 
 
 def _latency_cycles(cme: Any) -> float:

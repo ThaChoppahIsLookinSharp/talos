@@ -21,10 +21,21 @@ from pymoo.operators.mutation.pm import PM
 from pymoo.operators.repair.rounding import RoundingRepair
 from pymoo.operators.sampling.rnd import IntegerRandomSampling
 
-from talos.architecture.genome import GENOME_LENGTH, gene_bounds, gene_names
+from talos.architecture.genome import (
+    DEFAULT_DRAM_BW_BITS,
+    GENOME_LENGTH,
+    gene_bounds,
+    gene_names,
+)
 from talos.constraints import UserConstraints
 from talos.evaluation.objective_adapter import ObjectiveAdapter
-from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
+from talos.evaluation.zigzag_evaluator import (
+    DEFAULT_DRAM_ACCESSES_PER_CYCLE,
+    DEFAULT_DRAM_POWER_MODEL,
+    ZigZagEvaluator,
+    mapping_objective_for_level1,
+)
+from talos.ip.ip_characterization import PowerCharacterization
 
 
 DEFAULT_OBJECTIVES = ["latency", "energy", "area"]
@@ -43,6 +54,7 @@ class PymooRunArtifacts:
     n_gen: int
     seed: int
     n_workers: int
+    zigzag_mapping_objective: str
 
 
 class TalosPymooProblem(ElementwiseProblem):
@@ -69,14 +81,23 @@ class TalosPymooProblem(ElementwiseProblem):
         zigzag_lpf_limit: int = 1,
         zigzag_spatial_mappings: int = 1,
         constraints: UserConstraints | None = None,
+        dram_bandwidth_bits: int = DEFAULT_DRAM_BW_BITS,
+        dram_accesses_per_cycle: float = DEFAULT_DRAM_ACCESSES_PER_CYCLE,
+        dram_power_model: PowerCharacterization = DEFAULT_DRAM_POWER_MODEL,
     ) -> None:
         self.workload_path = workload_path
         self.objective_names = list(objective_names)
+        self.zigzag_mapping_objective = mapping_objective_for_level1(
+            self.objective_names
+        )
         self.debug = debug
         self.workdir = workdir
         self.zigzag_lpf_limit = zigzag_lpf_limit
         self.zigzag_spatial_mappings = zigzag_spatial_mappings
         self.constraints = constraints
+        self.dram_bandwidth_bits = dram_bandwidth_bits
+        self.dram_accesses_per_cycle = dram_accesses_per_cycle
+        self.dram_power_model = dram_power_model
         self._adapter = adapter
 
         bounds = gene_bounds()
@@ -101,10 +122,14 @@ class TalosPymooProblem(ElementwiseProblem):
         if self._adapter is None:
             evaluator = ZigZagEvaluator(
                 workload=self.workload_path,
+                opt=self.zigzag_mapping_objective,
                 debug=self.debug,
                 workdir=self._worker_workdir(),
                 lpf_limit=self.zigzag_lpf_limit,
                 nb_spatial_mappings_generated=self.zigzag_spatial_mappings,
+                dram_bandwidth_bits=self.dram_bandwidth_bits,
+                dram_accesses_per_cycle=self.dram_accesses_per_cycle,
+                dram_power_model=self.dram_power_model,
             )
             self._adapter = ObjectiveAdapter(evaluator, verbose=self.debug)
         return self._adapter
@@ -164,8 +189,12 @@ def run_nsga2_pymoo(
     zigzag_lpf_limit: int = 1,
     zigzag_spatial_mappings: int = 1,
     constraints: UserConstraints | None = None,
+    dram_bandwidth_bits: int = DEFAULT_DRAM_BW_BITS,
+    dram_accesses_per_cycle: float = DEFAULT_DRAM_ACCESSES_PER_CYCLE,
+    dram_power_model: PowerCharacterization = DEFAULT_DRAM_POWER_MODEL,
 ):
     objective_names = list(objective_names or DEFAULT_OBJECTIVES)
+    zigzag_mapping_objective = mapping_objective_for_level1(objective_names)
     _validate_run_config(
         objective_names,
         pop_size,
@@ -180,10 +209,14 @@ def run_nsga2_pymoo(
 
     evaluator = ZigZagEvaluator(
         workload=workload_path,
+        opt=zigzag_mapping_objective,
         debug=debug,
         workdir=str(workdir / "main"),
         lpf_limit=zigzag_lpf_limit,
         nb_spatial_mappings_generated=zigzag_spatial_mappings,
+        dram_bandwidth_bits=dram_bandwidth_bits,
+        dram_accesses_per_cycle=dram_accesses_per_cycle,
+        dram_power_model=dram_power_model,
     )
     adapter = ObjectiveAdapter(evaluator, verbose=debug)
     adapter.build_objectives(objective_names)
@@ -204,6 +237,9 @@ def run_nsga2_pymoo(
                 zigzag_lpf_limit=zigzag_lpf_limit,
                 zigzag_spatial_mappings=zigzag_spatial_mappings,
                 constraints=constraints,
+                dram_bandwidth_bits=dram_bandwidth_bits,
+                dram_accesses_per_cycle=dram_accesses_per_cycle,
+                dram_power_model=dram_power_model,
             )
         else:
             problem = TalosPymooProblem(
@@ -215,6 +251,9 @@ def run_nsga2_pymoo(
                 zigzag_lpf_limit=zigzag_lpf_limit,
                 zigzag_spatial_mappings=zigzag_spatial_mappings,
                 constraints=constraints,
+                dram_bandwidth_bits=dram_bandwidth_bits,
+                dram_accesses_per_cycle=dram_accesses_per_cycle,
+                dram_power_model=dram_power_model,
             )
 
         algorithm = _build_nsga2(pop_size)
@@ -254,6 +293,7 @@ def run_nsga2_pymoo(
         n_gen=n_gen,
         seed=seed,
         n_workers=n_workers,
+        zigzag_mapping_objective=zigzag_mapping_objective,
     )
     return result
 
@@ -322,6 +362,7 @@ def _write_results_csv(
         "n_gen",
         "seed",
         "n_workers",
+        "zigzag_mapping_objective",
         "latency_cycles",
         "latency",
         "energy",
@@ -372,6 +413,9 @@ def _write_results_csv(
                 "n_gen": n_gen,
                 "seed": seed,
                 "n_workers": n_workers,
+                "zigzag_mapping_objective": mapping_objective_for_level1(
+                    objective_names
+                ),
                 "latency_cycles": latency,
                 "latency": latency,
                 "energy": energy,
