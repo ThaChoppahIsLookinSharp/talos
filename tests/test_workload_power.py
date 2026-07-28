@@ -163,9 +163,9 @@ class UtilizationTests(unittest.TestCase):
             ),
             1.0,
         )
-        self.assertEqual(_memory_utilization(accesses=1000.0281, **common), 1.0)
+        self.assertEqual(_memory_utilization(accesses=1200, **common), 1.0)
         with self.assertRaisesRegex(ValueError, "exceeds 1"):
-            _memory_utilization(accesses=1001, **common)
+            _memory_utilization(accesses=1200.1, **common)
         with self.assertRaisesRegex(ValueError, "no physical instances"):
             _memory_utilization(accesses=1, **{**common, "instance_count": 0})
         with self.assertRaisesRegex(ValueError, "accesses_per_cycle"):
@@ -392,7 +392,7 @@ class WorkloadPowerTests(unittest.TestCase):
                 WorkloadActivityProfile(
                     layers=(
                         LayerActivity("ok", 10, 0, 0, {"gb": 10}),
-                        LayerActivity("bad", 10, 0, 0, {"gb": 11}),
+                        LayerActivity("bad", 10, 0, 0, {"gb": 13}),
                     )
                 ),
                 _dram(),

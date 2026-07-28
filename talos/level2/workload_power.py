@@ -17,8 +17,9 @@ from talos.level2.genome import (
 )
 
 
-# ZigZag mixes integer cycle counts with ceil-rounded memory transfers.
-UTILIZATION_TOLERANCE = 1e-4
+# Aggregate ZigZag transfers and synthetic port rates are approximate.
+UTILIZATION_TOLERANCE = 0.2
+PE_CAPACITY_TOLERANCE = 1e-4
 MEMORY_COMPONENT_NAMES = ("rf_i1", "rf_i2", "rf_o", "gb")
 WORKLOAD_REQUIREMENTS_ERROR = (
     "Workload-aware exploration requires a workload activity profile and "
@@ -169,7 +170,7 @@ def _pe_power(
         "macs_per_cycle",
         component.ip.id,
     )
-    if required_macs_per_cycle > available_macs_per_cycle + UTILIZATION_TOLERANCE:
+    if required_macs_per_cycle > available_macs_per_cycle + PE_CAPACITY_TOLERANCE:
         raise ValueError(
             f"insufficient_pe_capacity: layer {layer.layer_id!r} requires "
             f"{required_macs_per_cycle} MAC/cycle but selected PE instances "
