@@ -17,6 +17,10 @@ from talos.architecture.genome import (
     ArchitectureConfig,
     decode_genome,
 )
+from talos.evaluation.cacti_costs import (
+    Level1EnergyCalibration,
+    calibrate_synthetic_dram_power_model,
+)
 from talos.evaluation.workload_activity import (
     WorkloadActivityProfile,
     extract_workload_activity_profile,
@@ -83,6 +87,7 @@ class ZigZagEvaluator:
         dram_bandwidth_bits: int = DEFAULT_DRAM_BW_BITS,
         dram_accesses_per_cycle: float = DEFAULT_DRAM_ACCESSES_PER_CYCLE,
         dram_power_model: PowerCharacterization = DEFAULT_DRAM_POWER_MODEL,
+        energy_calibration: Level1EnergyCalibration | None = None,
     ) -> None:
         if dram_bandwidth_bits <= 0:
             raise ValueError("DRAM bandwidth must be > 0.")
@@ -91,6 +96,10 @@ class ZigZagEvaluator:
         if not isinstance(dram_power_model, PowerCharacterization):
             raise ValueError(
                 "DRAM power_model must be a PowerCharacterization."
+            )
+        if not isinstance(energy_calibration, Level1EnergyCalibration):
+            raise ValueError(
+                "Level 1 energy_calibration must be provided before evaluation."
             )
         if opt not in ZIGZAG_MAPPING_OBJECTIVES:
             raise ValueError(
@@ -109,7 +118,13 @@ class ZigZagEvaluator:
         self.nb_spatial_mappings_generated = nb_spatial_mappings_generated
         self.dram_bandwidth_bits = dram_bandwidth_bits
         self.dram_accesses_per_cycle = dram_accesses_per_cycle
-        self.dram_power_model = dram_power_model
+        self.energy_calibration = energy_calibration
+        self.dram_power_model = calibrate_synthetic_dram_power_model(
+            dram_power_model,
+            dram_bandwidth_bits=dram_bandwidth_bits,
+            accesses_per_cycle=dram_accesses_per_cycle,
+            calibration=energy_calibration,
+        )
         self.mapping_yaml_path = self._write_mapping_yaml(self.mapping)
         self._evaluation_counter = 0
 
@@ -230,11 +245,18 @@ class ZigZagEvaluator:
 
     def _build_accelerator(self, cfg: ArchitectureConfig) -> dict[str, Any]:
         dram_energy_pj_per_access = self._dram_dynamic_energy_pj_per_access()
+        rf_energy_pj_per_access = (
+            self.energy_calibration.rf_energy_pj_per_access(cfg.rf_bw_bits)
+        )
+        gb_cost = self.energy_calibration.gb_cost(
+            cfg.gb_size_bits,
+            cfg.gb_bw_bits,
+        )
         accelerator = {
             "name": "talos_candidate",
             "operational_array": {
                 "is_imc": False,
-                "unit_energy": 1.0,
+                "unit_energy": self.energy_calibration.mac_energy_pj,
                 "unit_area": 1.0,
                 "dimensions": ["D1", "D2"],
                 "sizes": [cfg.pe_x, cfg.pe_y],
@@ -245,8 +267,8 @@ class ZigZagEvaluator:
             "memories": {
                 "rf_i1": {
                     "size": cfg.rf_size_bits,
-                    "r_cost": 1.0,
-                    "w_cost": 1.0,
+                    "r_cost": rf_energy_pj_per_access,
+                    "w_cost": rf_energy_pj_per_access,
                     "area": 1.0,
                     "latency": 1,
                     "mem_type": "sram",
@@ -263,8 +285,8 @@ class ZigZagEvaluator:
                 },
                 "rf_i2": {
                     "size": cfg.rf_size_bits,
-                    "r_cost": 1.0,
-                    "w_cost": 1.0,
+                    "r_cost": rf_energy_pj_per_access,
+                    "w_cost": rf_energy_pj_per_access,
                     "area": 1.0,
                     "latency": 1,
                     "mem_type": "sram",
@@ -281,8 +303,8 @@ class ZigZagEvaluator:
                 },
                 "rf_o": {
                     "size": cfg.rf_size_bits,
-                    "r_cost": 1.0,
-                    "w_cost": 1.0,
+                    "r_cost": rf_energy_pj_per_access,
+                    "w_cost": rf_energy_pj_per_access,
                     "area": 1.0,
                     "latency": 1,
                     "mem_type": "sram",
@@ -299,8 +321,8 @@ class ZigZagEvaluator:
                 },
                 "gb": {
                     "size": cfg.gb_size_bits,
-                    "r_cost": 10.0,
-                    "w_cost": 10.0,
+                    "r_cost": gb_cost.read_energy_pj_per_access,
+                    "w_cost": gb_cost.write_energy_pj_per_access,
                     "area": 10.0,
                     "latency": 1,
                     "mem_type": "sram",
@@ -348,13 +370,9 @@ class ZigZagEvaluator:
         return accelerator
 
     def _dram_dynamic_energy_pj_per_access(self) -> float:
-        model = self.dram_power_model
-        accesses_per_second = (
-            model.reference_frequency_mhz
-            * 1_000_000.0
-            * self.dram_accesses_per_cycle
+        return self.energy_calibration.dram_energy_pj_per_access(
+            self.dram_bandwidth_bits
         )
-        return (model.p_active_w - model.p_idle_w) / accesses_per_second * 1e12
 
     def _dram_idle_energy_pj(self, latency_cycles: float) -> float:
         model = self.dram_power_model

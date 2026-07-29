@@ -10,7 +10,14 @@ from unittest.mock import patch
 from zigzag.hardware.architecture.memory_port import DataDirection
 from zigzag.mapping.data_movement import MemoryAccesses
 
-from talos.architecture.genome import ArchitectureConfig, default_genome, decode_genome
+from talos.architecture.genome import (
+    GB_BW_OPTIONS,
+    GB_SIZE_OPTIONS,
+    ArchitectureConfig,
+    default_genome,
+    decode_genome,
+)
+from talos.evaluation.cacti_costs import CactiMemoryCost, Level1EnergyCalibration
 from talos.evaluation.workload_activity import (
     LayerActivity,
     WorkloadActivityProfile,
@@ -22,6 +29,22 @@ from talos.evaluation.zigzag_evaluator import (
     mapping_objective_for_level1,
 )
 from talos.ip import PowerCharacterization
+
+
+def energy_calibration() -> Level1EnergyCalibration:
+    return Level1EnergyCalibration(
+        technology_nm=65,
+        reference_gb_capacity_bytes=128 * 1024,
+        reference_word_bits=16,
+        reference_gb_read_energy_pj=10,
+        reference_gb_write_energy_pj=14,
+        mac_energy_pj=2,
+        gb_costs=tuple(
+            CactiMemoryCost(size, bandwidth, 3, 4)
+            for size in GB_SIZE_OPTIONS
+            for bandwidth in GB_BW_OPTIONS
+        ),
+    )
 
 
 class _MemoryOperandLinks:
@@ -106,13 +129,14 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
                 dram_bandwidth_bits=256,
                 dram_accesses_per_cycle=2,
                 dram_power_model=model,
+                energy_calibration=energy_calibration(),
             )
             config = decode_genome(default_genome())
             dram = evaluator._build_accelerator(config)["memories"]["dram"]
 
         self.assertEqual(dram["ports"][0]["bandwidth_max"], 256)
-        self.assertEqual(dram["r_cost"], 10_000)
-        self.assertEqual(dram["w_cost"], 10_000)
+        self.assertEqual(dram["r_cost"], 6_400)
+        self.assertEqual(dram["w_cost"], 6_400)
         self.assertEqual(evaluator._dram_idle_energy_pj(100), 1_000_000)
 
     def test_area_proxy_counts_three_rfs_and_replicated_global_buffers(self) -> None:
@@ -179,7 +203,11 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
             return 1.0, 2.0, [SimpleNamespace(cumulative=True)]
 
         with tempfile.TemporaryDirectory() as tmp:
-            evaluator = ZigZagEvaluator(workload="unused.onnx", workdir=tmp)
+            evaluator = ZigZagEvaluator(
+                workload="unused.onnx",
+                workdir=tmp,
+                energy_calibration=energy_calibration(),
+            )
             with patch(
                 "zigzag.api.get_hardware_performance_zigzag",
                 side_effect=fake_zigzag,

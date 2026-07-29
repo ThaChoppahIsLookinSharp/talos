@@ -12,7 +12,7 @@ from typing import Sequence
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_IP_POOL = REPO_ROOT / "configs" / "ip_pool_synthetic_28nm.yaml"
+DEFAULT_IP_POOL = REPO_ROOT / "configs" / "ip_pool_synthetic_65nm.yaml"
 DEFAULT_WORKLOAD = REPO_ROOT / "workloads" / "alexnet.onnx"
 FULL_FLOW_SCRIPT = REPO_ROOT / "examples" / "full_flow_example.py"
 

@@ -44,7 +44,7 @@ from talos.level2.runner import _build_solution_rows
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SYNTHETIC_POOL_PATH = REPO_ROOT / "configs" / "ip_pool_synthetic_28nm.yaml"
+SYNTHETIC_POOL_PATH = REPO_ROOT / "configs" / "ip_pool_synthetic_65nm.yaml"
 
 
 class FakeAdapter:
@@ -518,7 +518,8 @@ class UserConstraintsTests(unittest.TestCase):
             ),
         )
         pool = SimpleNamespace(
-            by_type=lambda ip_type: [dram] if ip_type == "dram" else []
+            by_type=lambda ip_type: [dram] if ip_type == "dram" else [],
+            ip_blocks=[dram],
         )
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -564,6 +565,15 @@ class UserConstraintsTests(unittest.TestCase):
                     ),
                     patch("talos.ip.IPPool.from_yaml", return_value=pool),
                     patch(
+                        "talos.evaluation.cacti_costs.characterize_level1_energy",
+                        return_value=object(),
+                    ),
+                    patch(
+                        "talos.evaluation.cacti_costs.calibrate_synthetic_dram_ip",
+                        return_value=dram,
+                    ),
+                    patch("talos.evaluation.cacti_costs.write_energy_calibration"),
+                    patch(
                         "talos.ga.pymoo_runner.run_nsga2_pymoo",
                         return_value=level1_result,
                     ),
@@ -597,7 +607,7 @@ class UserConstraintsTests(unittest.TestCase):
             command[command.index("--level2-strategy") + 1],
             "exhaustive",
         )
-        self.assertIn("ip_pool_synthetic_28nm.yaml", command[command.index("--ip-pool") + 1])
+        self.assertIn("ip_pool_synthetic_65nm.yaml", command[command.index("--ip-pool") + 1])
 
     def test_objective_sweep_builds_paired_objective_commands(self) -> None:
         cases = objective_cases()

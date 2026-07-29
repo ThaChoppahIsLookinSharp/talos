@@ -24,7 +24,7 @@ from talos.level2.problem import Level2PymooProblem
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 IP_POOL_PATH = REPO_ROOT / "configs" / "ip_pool_example.yaml"
-SYNTHETIC_POOL_PATH = REPO_ROOT / "configs" / "ip_pool_synthetic_28nm.yaml"
+SYNTHETIC_POOL_PATH = REPO_ROOT / "configs" / "ip_pool_synthetic_65nm.yaml"
 ZIGZAG_YAML_PATH = REPO_ROOT / "configs" / "zigzag_accelerator_example.yaml"
 
 

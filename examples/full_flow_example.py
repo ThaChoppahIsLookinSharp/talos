@@ -159,7 +159,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--ip-pool",
-        default=str(REPO_ROOT / "configs" / "ip_pool_example.yaml"),
+        default=str(REPO_ROOT / "configs" / "ip_pool_synthetic_65nm.yaml"),
         help="Path to the Level 2 IP pool YAML.",
     )
     parser.add_argument(
@@ -240,6 +240,11 @@ def main() -> int:
         from talos.architecture.level1_importer import (
             abstract_accelerator_from_level1_config,
         )
+        from talos.evaluation.cacti_costs import (
+            calibrate_synthetic_dram_ip,
+            characterize_level1_energy,
+            write_energy_calibration,
+        )
         from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
         from talos.ga.pymoo_runner import run_nsga2_pymoo
         from talos.ip import IPPool
@@ -273,6 +278,30 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
+    print("[Calibration] Characterizing Level 1 energy with CACTI at 65 nm...")
+    try:
+        energy_calibration = characterize_level1_energy()
+        calibrated_dram_ip = calibrate_synthetic_dram_ip(
+            dram_ip,
+            energy_calibration,
+        )
+        pool = IPPool(
+            [
+                calibrated_dram_ip if ip.id == dram_ip.id else ip
+                for ip in pool.ip_blocks
+            ]
+        )
+        dram_ip = calibrated_dram_ip
+        calibration_path = write_energy_calibration(
+            results_dir / "energy_calibration.json",
+            energy_calibration,
+            dram_bus_width_bits=dram_ip.bandwidth_bits,
+            dram_power_model=dram_ip.power_model,
+        )
+    except Exception as exc:
+        print(f"ERROR: Level 1 energy calibration failed: {exc}", file=sys.stderr)
+        return 2
+    print(f"[Calibration] JSON: {calibration_path}")
     activity_evaluator = ZigZagEvaluator(
         workload=str(workload),
         opt=mapping_objective_for_level1(args.level1_objectives),
@@ -283,6 +312,7 @@ def main() -> int:
         dram_bandwidth_bits=dram_ip.bandwidth_bits,
         dram_accesses_per_cycle=dram_accesses_per_cycle,
         dram_power_model=dram_ip.power_model,
+        energy_calibration=energy_calibration,
     )
 
     print("[Level 1] Running small architecture exploration...")
@@ -303,6 +333,7 @@ def main() -> int:
             dram_bandwidth_bits=dram_ip.bandwidth_bits,
             dram_accesses_per_cycle=dram_accesses_per_cycle,
             dram_power_model=dram_ip.power_model,
+            energy_calibration=energy_calibration,
         )
     except ModuleNotFoundError as exc:
         missing = exc.name or str(exc)

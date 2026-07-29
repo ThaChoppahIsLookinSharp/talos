@@ -28,6 +28,11 @@ from talos.architecture.genome import (
     gene_names,
 )
 from talos.constraints import UserConstraints
+from talos.evaluation.cacti_costs import (
+    Level1EnergyCalibration,
+    characterize_level1_energy,
+    write_energy_calibration,
+)
 from talos.evaluation.objective_adapter import ObjectiveAdapter
 from talos.evaluation.zigzag_evaluator import (
     DEFAULT_DRAM_ACCESSES_PER_CYCLE,
@@ -48,6 +53,7 @@ Config.warnings["not_compiled"] = False
 @dataclass(frozen=True)
 class PymooRunArtifacts:
     csv_path: str | None
+    energy_calibration_path: str
     objective_names: list[str]
     gene_names: list[str]
     pop_size: int
@@ -84,6 +90,7 @@ class TalosPymooProblem(ElementwiseProblem):
         dram_bandwidth_bits: int = DEFAULT_DRAM_BW_BITS,
         dram_accesses_per_cycle: float = DEFAULT_DRAM_ACCESSES_PER_CYCLE,
         dram_power_model: PowerCharacterization = DEFAULT_DRAM_POWER_MODEL,
+        energy_calibration: Level1EnergyCalibration | None = None,
     ) -> None:
         self.workload_path = workload_path
         self.objective_names = list(objective_names)
@@ -98,6 +105,7 @@ class TalosPymooProblem(ElementwiseProblem):
         self.dram_bandwidth_bits = dram_bandwidth_bits
         self.dram_accesses_per_cycle = dram_accesses_per_cycle
         self.dram_power_model = dram_power_model
+        self.energy_calibration = energy_calibration
         self._adapter = adapter
 
         bounds = gene_bounds()
@@ -130,6 +138,7 @@ class TalosPymooProblem(ElementwiseProblem):
                 dram_bandwidth_bits=self.dram_bandwidth_bits,
                 dram_accesses_per_cycle=self.dram_accesses_per_cycle,
                 dram_power_model=self.dram_power_model,
+                energy_calibration=self.energy_calibration,
             )
             self._adapter = ObjectiveAdapter(evaluator, verbose=self.debug)
         return self._adapter
@@ -192,6 +201,7 @@ def run_nsga2_pymoo(
     dram_bandwidth_bits: int = DEFAULT_DRAM_BW_BITS,
     dram_accesses_per_cycle: float = DEFAULT_DRAM_ACCESSES_PER_CYCLE,
     dram_power_model: PowerCharacterization = DEFAULT_DRAM_POWER_MODEL,
+    energy_calibration: Level1EnergyCalibration | None = None,
 ):
     objective_names = list(objective_names or DEFAULT_OBJECTIVES)
     zigzag_mapping_objective = mapping_objective_for_level1(objective_names)
@@ -206,6 +216,7 @@ def run_nsga2_pymoo(
 
     output_dir = Path(results_dir) if results_dir is not None else Path.cwd() / "results"
     workdir = output_dir / "pymoo_workdirs"
+    energy_calibration = energy_calibration or characterize_level1_energy()
 
     evaluator = ZigZagEvaluator(
         workload=workload_path,
@@ -217,6 +228,13 @@ def run_nsga2_pymoo(
         dram_bandwidth_bits=dram_bandwidth_bits,
         dram_accesses_per_cycle=dram_accesses_per_cycle,
         dram_power_model=dram_power_model,
+        energy_calibration=energy_calibration,
+    )
+    calibration_path = write_energy_calibration(
+        output_dir / "energy_calibration.json",
+        energy_calibration,
+        dram_bus_width_bits=dram_bandwidth_bits,
+        dram_power_model=evaluator.dram_power_model,
     )
     adapter = ObjectiveAdapter(evaluator, verbose=debug)
     adapter.build_objectives(objective_names)
@@ -240,6 +258,7 @@ def run_nsga2_pymoo(
                 dram_bandwidth_bits=dram_bandwidth_bits,
                 dram_accesses_per_cycle=dram_accesses_per_cycle,
                 dram_power_model=dram_power_model,
+                energy_calibration=energy_calibration,
             )
         else:
             problem = TalosPymooProblem(
@@ -254,6 +273,7 @@ def run_nsga2_pymoo(
                 dram_bandwidth_bits=dram_bandwidth_bits,
                 dram_accesses_per_cycle=dram_accesses_per_cycle,
                 dram_power_model=dram_power_model,
+                energy_calibration=energy_calibration,
             )
 
         algorithm = _build_nsga2(pop_size)
@@ -287,6 +307,7 @@ def run_nsga2_pymoo(
 
     result.talos = PymooRunArtifacts(
         csv_path=csv_path,
+        energy_calibration_path=str(calibration_path),
         objective_names=objective_names,
         gene_names=gene_names(),
         pop_size=pop_size,

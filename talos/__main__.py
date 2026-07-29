@@ -4,6 +4,10 @@ import argparse
 from pathlib import Path
 
 from talos.constraints import UserConstraints
+from talos.evaluation.cacti_costs import (
+    Level1EnergyCalibration,
+    characterize_level1_energy,
+)
 from talos.evaluation.objective_adapter import ObjectiveAdapter
 from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
 
@@ -21,12 +25,15 @@ def run_smoke_test(
     debug: bool = False,
     zigzag_lpf_limit: int = 1,
     zigzag_spatial_mappings: int = 1,
+    energy_calibration: Level1EnergyCalibration | None = None,
 ) -> None:
+    energy_calibration = energy_calibration or characterize_level1_energy()
     evaluator = ZigZagEvaluator(
         str(workload_path),
         debug=debug,
         lpf_limit=zigzag_lpf_limit,
         nb_spatial_mappings_generated=zigzag_spatial_mappings,
+        energy_calibration=energy_calibration,
     )
     adapter = ObjectiveAdapter(evaluator)
 
@@ -222,6 +229,7 @@ def main() -> None:
             zigzag_lpf_limit=args.zigzag_lpf_limit,
             zigzag_spatial_mappings=args.zigzag_spatial_mappings,
             constraints=constraints,
+            energy_calibration=characterize_level1_energy(),
         )
 
         print("\npymoo NSGA-II run finished.")
@@ -235,6 +243,7 @@ def main() -> None:
             debug=args.debug,
             zigzag_lpf_limit=args.zigzag_lpf_limit,
             zigzag_spatial_mappings=args.zigzag_spatial_mappings,
+            energy_calibration=characterize_level1_energy(),
         )
 
 

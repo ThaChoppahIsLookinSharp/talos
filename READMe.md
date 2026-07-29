@@ -68,6 +68,16 @@ DRAM is a fixed platform IP rather than a search gene. Its bus width, access
 rate, and idle/active power come from the single `type: dram` entry in the IP
 pool; standalone Level 1 runs default to a 512-bit synthetic DRAM.
 
+Before starting any Level 1 workers, TALOS runs the CACTI binary bundled with
+ZigZag at 65 nm. It characterizes all 25 `gb_size_code × gb_bw_code`
+combinations and one fixed 128 KiB, 16-bit SRAM reference. CACTI is copied to a
+temporary directory once per flow and is never run by a candidate, layer, or
+worker. CACTI requires a physical depth of at least 32 words, so the logical
+1 KiB/512-bit, 1 KiB/1024-bit, and 2 KiB/1024-bit candidates are modeled with
+2 KiB, 4 KiB, and 4 KiB physical macros respectively. ZigZag still sees their
+original logical capacities, and the overprovisioning is recorded in
+`energy_calibration.json`.
+
 ### Level 1 to Level 2
 
 A decoded Level 1 architecture becomes:
@@ -119,6 +129,23 @@ use `energy`, latency objectives use `latency`, and a mix of both uses `EDP`;
 area alone falls back to `EDP`. The selected criterion is reused when the final
 candidate profile is generated for Level 2.
 
+Level 1 energy uses CACTI together with the 65 nm, 16-bit ratios from Table IV
+of [Eyeriss](https://www.cs.cmu.edu/~15740-f20/papers/isca16-chen-eyeriss.pdf):
+
+```text
+MAC = 1×, RF = 1×, GB = 6×, DRAM = 200×
+
+E_GB_reference = (E_CACTI_read + E_CACTI_write) / 2
+E_MAC = E_GB_reference / 6
+E_RF_access = E_MAC × (rf_bandwidth_bits / 16)
+E_DRAM_access = 200 × E_MAC × (dram_bandwidth_bits / 16)
+```
+
+Each candidate GB instead uses its own CACTI read and write energies directly;
+changing a GB can therefore change its mapping and memory energy without
+changing `E_MAC`, RF energy, or DRAM energy. The derived `E_MAC` is ZigZag's
+dynamic energy per MAC operation, not PE leakage or clock power.
+
 ### Level 2 objectives
 
 | Objective | Meaning |
@@ -163,17 +190,21 @@ P_average = E_inference / inference_time
 
 For example, if ZigZag maps a layer onto 16 of `N` PEs, the PE term is exactly `16 × p_active_w + (N - 16) × p_idle_w`. Register-file, global-buffer, and DRAM utilization comes from the accesses in the ZigZag mapping. DRAM remains external to Level 2 on-chip area and on-chip critical timing, but its power and energy are included and its own `fmax_mhz` must still reach the reference frequency. Its `p_active_w` means continuous transfers at the declared bus width and `accesses_per_cycle`; `p_idle_w` means no transfers.
 
-For Level 1, TALOS converts that same DRAM power characterization into the
-dynamic cost ZigZag expects:
+For a synthetic DRAM, TALOS reconstructs `p_active_w` from the Level 1 Eyeriss
+access energy:
 
 ```text
-E_dynamic_per_access =
-    (p_active_w - p_idle_w)
-    / (reference_frequency × accesses_per_cycle)
+p_active_w = p_idle_w
+    + E_DRAM_access
+    × reference_frequency
+    × accesses_per_cycle
 ```
 
-The idle term is then integrated over workload latency, so Level 1 and Level 2
-use the same characterized point.
+This keeps the dynamic energy per DRAM access identical in Level 1 and Level 2
+while preserving its idle power and PVT metadata. A non-synthetic DRAM is not
+rewritten because measured characterization takes priority. PE power in Level 2
+always remains the IP pool or Genus `p_idle_w`/`p_active_w`; it is never replaced
+by the Level 1 MAC proxy.
 
 Memory accesses are normalized from the abstract Level 1 port width to the selected IP width. Every valid combination uses one common characterized `reference_frequency_mhz` and `reference_voltage_v`. Power values are used exactly as characterized, without frequency scaling or interpolation. `physical_fmax_mhz` is the minimum selected-IP `fmax_mhz`; it must meet the reference frequency but never becomes the operating frequency. `physical_critical_delay` and `timing_margin_mhz = physical_fmax_mhz - reference_frequency_mhz` are reported separately.
 
@@ -260,7 +291,7 @@ python -m talos --ga \
 ```bash
 python examples/full_flow_example.py \
   --workload workloads/alexnet.onnx \
-  --ip-pool configs/ip_pool_synthetic_28nm.yaml \
+  --ip-pool configs/ip_pool_synthetic_65nm.yaml \
   --level1-objectives latency energy area \
   --level1-pop-size 12 \
   --level1-generations 3 \
@@ -281,7 +312,7 @@ This is the main entry point when Level 2 metrics or physical constraints are ne
 ```bash
 python examples/full_flow_example.py \
   --workload workloads/alexnet.onnx \
-  --ip-pool configs/ip_pool_synthetic_28nm.yaml \
+  --ip-pool configs/ip_pool_synthetic_65nm.yaml \
   --level1-objectives latency energy area \
   --level2-objectives area energy workload_latency_s \
   --max-latency-cycles 100000000 \
@@ -301,7 +332,7 @@ python examples/full_flow_example.py \
 
 ```bash
 python examples/full_flow_example.py \
-  --ip-pool configs/ip_pool_synthetic_28nm.yaml \
+  --ip-pool configs/ip_pool_synthetic_65nm.yaml \
   --level2-strategy exhaustive \
   --level2-exhaustive-max-combinations 100000 \
   --max-architectures 4 \
@@ -359,9 +390,11 @@ These objective-sweep defaults are calibrated to leave a useful feasible region 
 IP pools are YAML files with an `ips` list. The two included pools are:
 
 - `configs/ip_pool_example.yaml`: illustrative values for small examples.
-- `configs/ip_pool_synthetic_28nm.yaml`: synthetic values used by tests and sweeps; they are not foundry characterization.
+- `configs/ip_pool_synthetic_65nm.yaml`: synthetic values used by tests and sweeps; they are not foundry characterization.
 
 The synthetic pool contains 2 PE, 4 register-file, 7 global-buffer choices, and one fixed DRAM. It covers every Level 1 genome and produces at most 896 compatible Level 2 combinations for one architecture, so exhaustive selection is normally preferable. Add variants only from a coherent characterization flow rather than inventing extra points for population size.
+Its 65 nm name matches the Level 1 CACTI technology; all pool PPA values remain
+explicit approximations rather than foundry characterization.
 
 A minimal PE entry looks like this:
 
@@ -500,7 +533,9 @@ The complete flow writes:
 
 ```text
 results/full_flow_demo/
+├── energy_calibration.json
 ├── level1/
+│   ├── energy_calibration.json
 │   └── pymoo_nsga2_results_<timestamp>.csv
 ├── level1_profiles/
 ├── level2_arch_<index>/
@@ -543,7 +578,7 @@ from talos.level2 import run_level2
 
 config = decode_genome(default_genome())
 accelerator = abstract_accelerator_from_level1_config(config)
-pool = IPPool.from_yaml("configs/ip_pool_synthetic_28nm.yaml")
+pool = IPPool.from_yaml("configs/ip_pool_synthetic_65nm.yaml")
 
 result = run_level2(
     accelerator=accelerator,
@@ -584,7 +619,10 @@ python examples/objective_sweep.py --help
 ## Current limitations
 
 - The repository is a research prototype, not a calibrated PPA sign-off flow.
-- The synthetic 28 nm pool exists for repeatable tests and exploration only.
+- The synthetic 65 nm pool exists for repeatable tests and exploration only.
+- The MAC, RF, and DRAM costs are 65 nm, 16-bit Eyeriss proxies; MAC energy is not scaled for 8-bit operation.
+- CACTI models the GB SRAM but not the FIFOs included in the Eyeriss GB ratio.
+- Level 1 does not yet model NoC energy, MAC/RF leakage, or a persistent CACTI cache.
 - Level 1 area is an analytical proxy unless a backend provides a physical area result.
 - DRAM is a fixed platform characterization and is excluded only from Level 2 on-chip area; its workload power and energy are included.
 - All compatible candidate IPs in a workload-aware search must share one characterization frequency and PVT point; characterization tables and interpolation are not implemented.
