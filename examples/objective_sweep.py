@@ -12,14 +12,14 @@ from typing import Sequence
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_IP_POOL = REPO_ROOT / "configs" / "ip_pool_synthetic_28nm.yaml"
+DEFAULT_IP_POOL = REPO_ROOT / "configs" / "ip_pool_synthetic_65nm.yaml"
 DEFAULT_WORKLOAD = REPO_ROOT / "workloads" / "alexnet.onnx"
 FULL_FLOW_SCRIPT = REPO_ROOT / "examples" / "full_flow_example.py"
 
 OBJECTIVE_MAP = {
     "energy": (["energy"], ["energy"]),
     "area": (["area"], ["area"]),
-    "performance": (["latency"], ["delay"]),
+    "performance": (["latency"], ["workload_latency_s"]),
 }
 OBJECTIVE_CASES = [
     ("energy", ["energy"]),
@@ -75,13 +75,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--level2-strategy",
         choices=["nsga2", "exhaustive"],
-        default="nsga2",
+        default="exhaustive",
     )
     parser.add_argument("--level2-exhaustive-max-combinations", type=int, default=100_000)
-    parser.add_argument("--max-architectures", type=int, default=12)
-    parser.add_argument("--max-area-mm2", type=float, default=0.40)
-    parser.add_argument("--max-power-w", type=float, default=0.12)
-    parser.add_argument("--min-frequency-mhz", type=float, default=550.0)
+    parser.add_argument("--max-architectures", type=int, default=3)
+    parser.add_argument("--max-area-mm2", type=float, default=6.0)
+    parser.add_argument("--max-power-w", type=float, default=1.2)
+    parser.add_argument("--min-frequency-mhz", type=float, default=600.0)
     parser.add_argument("--no-constraints", action="store_true")
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--dry-run", action="store_true")

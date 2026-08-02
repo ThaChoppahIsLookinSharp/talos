@@ -1,21 +1,58 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 import contextlib
 from dataclasses import dataclass
 import io
 import logging
+from math import isfinite, prod
 import os
 from pathlib import Path
 import pickle
 from typing import Any
 import yaml
 
-from talos.architecture.genome import ArchitectureConfig, decode_genome
+from talos.architecture.genome import (
+    DEFAULT_DRAM_BW_BITS,
+    ArchitectureConfig,
+    decode_genome,
+)
+from talos.evaluation.cacti_costs import (
+    Level1EnergyCalibration,
+    calibrate_synthetic_dram_power_model,
+)
 from talos.evaluation.workload_activity import (
     WorkloadActivityProfile,
     extract_workload_activity_profile,
 )
+from talos.ip.ip_characterization import PowerCharacterization
+
+DEFAULT_DRAM_ACCESSES_PER_CYCLE = 1.0
+DEFAULT_DRAM_POWER_MODEL = PowerCharacterization(
+    source="synthetic",
+    activity_method="access_rate",
+    reference_frequency_mhz=500.0,
+    p_idle_w=0.02,
+    p_active_w=4.5,
+    voltage_v=1.0,
+    temperature_c=25.0,
+    corner="tt",
+)
+ZIGZAG_MAPPING_OBJECTIVES = {"energy", "latency", "EDP"}
+
+
+def mapping_objective_for_level1(objective_names: Iterable[str]) -> str:
+    """Choose the one ZigZag mapping criterion matching Level-1 objectives."""
+    names = set(objective_names)
+    energy = bool(names & {"energy", "eap"})
+    latency = bool(names & {"latency", "alp"})
+    if "edp" in names or (energy and latency):
+        return "EDP"
+    if energy:
+        return "energy"
+    if latency:
+        return "latency"
+    return "EDP"
 
 
 @dataclass
@@ -26,6 +63,7 @@ class EvaluationResult:
     valid: bool
     error_message: str | None = None
     activity_profile: WorkloadActivityProfile | None = None
+    mapping_objective: str | None = None
 
 
 class ZigZagEvaluator:
@@ -46,7 +84,27 @@ class ZigZagEvaluator:
         debug: bool = False,
         lpf_limit: int = 6,
         nb_spatial_mappings_generated: int = 3,
+        dram_bandwidth_bits: int = DEFAULT_DRAM_BW_BITS,
+        dram_accesses_per_cycle: float = DEFAULT_DRAM_ACCESSES_PER_CYCLE,
+        dram_power_model: PowerCharacterization = DEFAULT_DRAM_POWER_MODEL,
+        energy_calibration: Level1EnergyCalibration | None = None,
     ) -> None:
+        if dram_bandwidth_bits <= 0:
+            raise ValueError("DRAM bandwidth must be > 0.")
+        if not isfinite(dram_accesses_per_cycle) or dram_accesses_per_cycle <= 0:
+            raise ValueError("DRAM accesses_per_cycle must be finite and > 0.")
+        if not isinstance(dram_power_model, PowerCharacterization):
+            raise ValueError(
+                "DRAM power_model must be a PowerCharacterization."
+            )
+        if not isinstance(energy_calibration, Level1EnergyCalibration):
+            raise ValueError(
+                "Level 1 energy_calibration must be provided before evaluation."
+            )
+        if opt not in ZIGZAG_MAPPING_OBJECTIVES:
+            raise ValueError(
+                f"ZigZag opt must be one of {sorted(ZIGZAG_MAPPING_OBJECTIVES)}."
+            )
         self.workload = workload
         self.mapping = mapping if mapping is not None else self._default_mapping()
         self.opt = opt
@@ -58,6 +116,15 @@ class ZigZagEvaluator:
         self.debug = debug
         self.lpf_limit = lpf_limit
         self.nb_spatial_mappings_generated = nb_spatial_mappings_generated
+        self.dram_bandwidth_bits = dram_bandwidth_bits
+        self.dram_accesses_per_cycle = dram_accesses_per_cycle
+        self.energy_calibration = energy_calibration
+        self.dram_power_model = calibrate_synthetic_dram_power_model(
+            dram_power_model,
+            dram_bandwidth_bits=dram_bandwidth_bits,
+            accesses_per_cycle=dram_accesses_per_cycle,
+            calibration=energy_calibration,
+        )
         self.mapping_yaml_path = self._write_mapping_yaml(self.mapping)
         self._evaluation_counter = 0
 
@@ -74,6 +141,7 @@ class ZigZagEvaluator:
                 with self._quiet_zigzag():
                     energy, latency, cme = self._run_zigzag(accelerator_yaml_path)
 
+            energy += self._dram_idle_energy_pj(latency)
             area = self._extract_area(cme, cfg)
 
             return EvaluationResult(
@@ -82,6 +150,7 @@ class ZigZagEvaluator:
                 area=float(area),
                 valid=True,
                 activity_profile=extract_workload_activity_profile(cme),
+                mapping_objective=self.opt,
             )
 
         except Exception as exc:
@@ -97,6 +166,7 @@ class ZigZagEvaluator:
                 area=float("inf"),
                 valid=False,
                 error_message=str(exc),
+                mapping_objective=self.opt,
             )
 
     def _write_mapping_yaml(self, mapping: list[dict[str, Any]]) -> str:
@@ -174,11 +244,19 @@ class ZigZagEvaluator:
         }
 
     def _build_accelerator(self, cfg: ArchitectureConfig) -> dict[str, Any]:
+        dram_energy_pj_per_access = self._dram_dynamic_energy_pj_per_access()
+        rf_energy_pj_per_access = (
+            self.energy_calibration.rf_energy_pj_per_access(cfg.rf_bw_bits)
+        )
+        gb_cost = self.energy_calibration.gb_cost(
+            cfg.gb_size_bits,
+            cfg.gb_bw_bits,
+        )
         accelerator = {
             "name": "talos_candidate",
             "operational_array": {
                 "is_imc": False,
-                "unit_energy": 1.0,
+                "unit_energy": self.energy_calibration.mac_energy_pj,
                 "unit_area": 1.0,
                 "dimensions": ["D1", "D2"],
                 "sizes": [cfg.pe_x, cfg.pe_y],
@@ -189,8 +267,8 @@ class ZigZagEvaluator:
             "memories": {
                 "rf_i1": {
                     "size": cfg.rf_size_bits,
-                    "r_cost": 1.0,
-                    "w_cost": 1.0,
+                    "r_cost": rf_energy_pj_per_access,
+                    "w_cost": rf_energy_pj_per_access,
                     "area": 1.0,
                     "latency": 1,
                     "mem_type": "sram",
@@ -207,8 +285,8 @@ class ZigZagEvaluator:
                 },
                 "rf_i2": {
                     "size": cfg.rf_size_bits,
-                    "r_cost": 1.0,
-                    "w_cost": 1.0,
+                    "r_cost": rf_energy_pj_per_access,
+                    "w_cost": rf_energy_pj_per_access,
                     "area": 1.0,
                     "latency": 1,
                     "mem_type": "sram",
@@ -225,8 +303,8 @@ class ZigZagEvaluator:
                 },
                 "rf_o": {
                     "size": cfg.rf_size_bits,
-                    "r_cost": 1.0,
-                    "w_cost": 1.0,
+                    "r_cost": rf_energy_pj_per_access,
+                    "w_cost": rf_energy_pj_per_access,
                     "area": 1.0,
                     "latency": 1,
                     "mem_type": "sram",
@@ -243,8 +321,8 @@ class ZigZagEvaluator:
                 },
                 "gb": {
                     "size": cfg.gb_size_bits,
-                    "r_cost": 10.0,
-                    "w_cost": 10.0,
+                    "r_cost": gb_cost.read_energy_pj_per_access,
+                    "w_cost": gb_cost.write_energy_pj_per_access,
                     "area": 10.0,
                     "latency": 1,
                     "mem_type": "sram",
@@ -263,12 +341,11 @@ class ZigZagEvaluator:
                     ],
                     "served_dimensions": cfg.gb_served_dims,
                 },
-                # DRAM stays in the ZigZag YAML only to model off-chip accesses.
-                # It is not part of the on-chip accelerator area or Level-2 IPs.
+                # DRAM is a fixed platform IP, not an on-chip Level-2 gene.
                 "dram": {
                     "size": 10**12,
-                    "r_cost": 1000.0,
-                    "w_cost": 1000.0,
+                    "r_cost": dram_energy_pj_per_access,
+                    "w_cost": dram_energy_pj_per_access,
                     "area": 0.0,
                     "latency": 1,
                     "mem_type": "dram",
@@ -277,7 +354,7 @@ class ZigZagEvaluator:
                     "ports": [
                         self._rw_port(
                             "rw_port_1",
-                            cfg.dram_bw_bits,
+                            self.dram_bandwidth_bits,
                             [
                                 "I1, tl", "I1, fh",
                                 "I2, tl", "I2, fh",
@@ -291,6 +368,18 @@ class ZigZagEvaluator:
         }
 
         return accelerator
+
+    def _dram_dynamic_energy_pj_per_access(self) -> float:
+        return self.energy_calibration.dram_energy_pj_per_access(
+            self.dram_bandwidth_bits
+        )
+
+    def _dram_idle_energy_pj(self, latency_cycles: float) -> float:
+        model = self.dram_power_model
+        latency_s = latency_cycles / (
+            model.reference_frequency_mhz * 1_000_000.0
+        )
+        return model.p_idle_w * latency_s * 1e12
 
     def _default_mapping(self) -> list[dict[str, Any]]:
         return [
@@ -338,9 +427,14 @@ class ZigZagEvaluator:
         Replace this later with your own Level-2 IP characterization model.
         """
         mac_count = cfg.pe_x * cfg.pe_y
+        gb_count = prod(
+            size
+            for dimension, size in (("D1", cfg.pe_x), ("D2", cfg.pe_y))
+            if dimension not in cfg.gb_served_dims
+        )
 
         mac_area = mac_count * 1.0
-        rf_area = mac_count * cfg.rf_size_bits * 0.001
-        gb_area = cfg.gb_size_bits * 0.0005
+        rf_area = 3 * mac_count * cfg.rf_size_bits * 0.001
+        gb_area = gb_count * cfg.gb_size_bits * 0.0005
 
         return float(mac_area + rf_area + gb_area)

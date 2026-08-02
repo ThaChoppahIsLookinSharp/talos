@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import math
 from pathlib import Path
 from typing import Any
 
@@ -10,11 +11,76 @@ from talos.architecture.abstract_accelerator import AbstractComponent
 from talos.ip.ip_characterization import IPBlock, PowerCharacterization
 
 
+INCLUDED_RF_ROLES = frozenset({"rf_i1", "rf_i2", "rf_o"})
+
+
 class IPPool:
-    def __init__(self, ip_blocks: list[IPBlock]) -> None:
+    def __init__(
+        self,
+        ip_blocks: list[IPBlock],
+        technology_nm: float | None = None,
+    ) -> None:
         if not ip_blocks:
             raise ValueError("IPPool requires at least one IPBlock.")
+        if technology_nm is not None and (
+            not math.isfinite(technology_nm) or technology_nm <= 0
+        ):
+            raise ValueError("IPPool technology_nm must be finite and > 0.")
         self.ip_blocks = list(ip_blocks)
+        self.technology_nm = technology_nm
+        self._validate_composition()
+
+    def _validate_composition(self) -> None:
+        by_id = {ip.id: ip for ip in self.ip_blocks}
+        if len(by_id) != len(self.ip_blocks):
+            raise ValueError("IPPool IPBlock ids must be unique.")
+
+        for ip in self.ip_blocks:
+            if ip.type == "dram":
+                try:
+                    accesses_per_cycle = float(
+                        (ip.metadata or {})["accesses_per_cycle"]
+                    )
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"DRAM IPBlock {ip.id!r} requires positive metadata "
+                        "'accesses_per_cycle'."
+                    ) from exc
+                if (
+                    ip.bandwidth_bits is None
+                    or ip.bandwidth_bits <= 0
+                    or ip.power_model is None
+                    or not math.isfinite(accesses_per_cycle)
+                    or accesses_per_cycle <= 0
+                ):
+                    raise ValueError(
+                        f"DRAM IPBlock {ip.id!r} requires positive bandwidth_bits, "
+                        "power_model and metadata 'accesses_per_cycle'."
+                    )
+            if not ip.included_rfs:
+                continue
+            if ip.type != "pe":
+                raise ValueError(
+                    f"IPBlock {ip.id!r} declares included_rfs but is not a PE."
+                )
+            unknown_roles = sorted(set(ip.included_rfs) - INCLUDED_RF_ROLES)
+            if unknown_roles:
+                raise ValueError(
+                    f"IPBlock {ip.id!r} has unknown included RF role(s): "
+                    f"{', '.join(unknown_roles)}."
+                )
+            for role, referenced_id in ip.included_rfs.items():
+                referenced = by_id.get(referenced_id)
+                if referenced is None:
+                    raise ValueError(
+                        f"IPBlock {ip.id!r} included RF role {role!r} references "
+                        f"unknown IPBlock {referenced_id!r}."
+                    )
+                if referenced.type != "register_file":
+                    raise ValueError(
+                        f"IPBlock {ip.id!r} included RF role {role!r} references "
+                        f"{referenced_id!r}, which is not a register_file."
+                    )
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "IPPool":
@@ -22,6 +88,12 @@ class IPPool:
         data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             raise ValueError("IP pool YAML must contain a top-level mapping.")
+        try:
+            technology_nm = float(data["technology_nm"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "IP pool YAML must contain a positive top-level 'technology_nm'."
+            ) from exc
         raw_ips = data.get("ips")
         if not isinstance(raw_ips, list):
             raise ValueError("IP pool YAML must contain an 'ips' list.")
@@ -47,7 +119,7 @@ class IPPool:
                 ip_blocks.append(IPBlock(**values))
             except TypeError as exc:
                 raise ValueError(f"Invalid IP entry at index {index}: {raw_ip!r}") from exc
-        return cls(ip_blocks)
+        return cls(ip_blocks, technology_nm=technology_nm)
 
     def by_type(self, ip_type: str) -> list[IPBlock]:
         return [ip for ip in self.ip_blocks if ip.type == ip_type]
@@ -77,4 +149,7 @@ class IPPool:
         return compatible
 
     def to_dict(self) -> dict[str, Any]:
-        return {"ips": [asdict(ip) for ip in self.ip_blocks]}
+        return {
+            "technology_nm": self.technology_nm,
+            "ips": [asdict(ip) for ip in self.ip_blocks],
+        }

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from itertools import product
-from math import prod
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +12,7 @@ from talos.level2.problem import Level2PymooProblem
 from talos.level2.runner import (
     DEFAULT_LEVEL2_OBJECTIVES,
     _evaluate_solution,
+    _solution_sort_key,
     _write_solutions_csv,
 )
 
@@ -45,7 +44,7 @@ def run_level2_exhaustive(
         constraints=constraints,
         activity_profile=activity_profile,
     )
-    explored_combinations = prod(len(gene.candidates) for gene in problem.spec.genes)
+    explored_combinations = problem.spec.genome_count()
     if explored_combinations > max_combinations:
         raise ValueError(
             "Level 2 exhaustive search would explore "
@@ -53,8 +52,7 @@ def run_level2_exhaustive(
         )
 
     rows: list[dict[str, Any]] = []
-    candidate_ranges = [range(len(gene.candidates)) for gene in problem.spec.genes]
-    for solution_index, genome in enumerate(product(*candidate_ranges)):
+    for solution_index, genome in enumerate(problem.spec.iter_genomes()):
         row = _evaluate_solution(
             problem=problem,
             solution_index=solution_index,
@@ -68,12 +66,7 @@ def run_level2_exhaustive(
         if row["valid"] and row["constraints_satisfied"]:
             rows.append(row)
 
-    rows.sort(
-        key=lambda row: (
-            tuple(float(value) for value in row["objective_values"]),
-            tuple(float(value) for value in row["genome"]),
-        )
-    )
+    rows.sort(key=_solution_sort_key)
 
     csv_path = None
     if save_csv:

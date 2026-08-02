@@ -12,14 +12,25 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from talos.constraints import UserConstraints, estimated_fps
+from talos.constraints import UserConstraints
 from talos.evaluation.workload_activity import WorkloadActivityProfile
+from talos.evaluation.zigzag_evaluator import (
+    EvaluationResult,
+    mapping_objective_for_level1,
+)
 
 
 LEVEL1_OBJECTIVES = ["latency", "energy", "area"]
-LEVEL2_OBJECTIVES = ["area", "energy", "delay"]
+LEVEL2_OBJECTIVES = ["area", "energy", "workload_latency_s"]
 SUPPORTED_LEVEL1_OBJECTIVES = ["latency", "energy", "area", "edp", "eap", "alp"]
-SUPPORTED_LEVEL2_OBJECTIVES = ["area", "energy", "power", "delay", "inv_throughput"]
+SUPPORTED_LEVEL2_OBJECTIVES = [
+    "area",
+    "energy",
+    "power",
+    "workload_latency_s",
+    "delay",
+    "inv_throughput",
+]
 SUMMARY_FIELDNAMES = [
     "architecture_index",
     "level1_raw_genome",
@@ -31,24 +42,31 @@ SUMMARY_FIELDNAMES = [
     "level1_latency",
     "level1_energy",
     "level1_area_proxy",
+    "zigzag_mapping_objective",
     "level2_solution_index",
     "level2_genome",
     "selected_ips",
+    "covered_by_pe",
     "level2_objective_names",
     "level2_objective_values",
     "level2_area",
     "level2_power",
     "workload_energy_j",
+    "layer_cycles_mapping",
+    "workload_cycles_per_inference",
     "workload_latency_s",
+    "workload_throughput_ips",
+    "reference_frequency_mhz",
+    "reference_voltage_v",
     "dram_accesses",
-    "dram_access_energy_j",
-    "level2_delay",
-    "level2_throughput",
-    "implementation_fmax_mhz",
+    "dram_energy_j",
+    "physical_critical_delay",
+    "selected_ip_min_throughput",
+    "physical_fmax_mhz",
+    "timing_margin_mhz",
     "level2_valid",
     "constraints_satisfied",
     "constraint_violations",
-    "estimated_fps",
     "level2_strategy",
     "level2_explored_combinations",
     "level1_csv_path",
@@ -65,6 +83,7 @@ class Level1Candidate:
     architecture_config: Any
     accelerator: Any
     activity_profile: WorkloadActivityProfile | None = None
+    evaluation: EvaluationResult | None = None
 
 
 def iter_level1_genomes(result: Any) -> list[list[float]]:
@@ -73,6 +92,25 @@ def iter_level1_genomes(result: Any) -> list[list[float]]:
 
 def iter_level1_objectives(result: Any) -> list[list[float]]:
     return _float_rows(getattr(result, "F", None))
+
+
+def iter_level1_candidates(result: Any) -> tuple[list[list[float]], list[list[float]]]:
+    genomes = iter_level1_genomes(result)
+    objectives = iter_level1_objectives(result)
+    population = getattr(result, "pop", None)
+    if population is None:
+        return genomes, objectives
+
+    for genome, values, feasible in zip(
+        _float_rows(population.get("X")),
+        _float_rows(population.get("F")),
+        _float_rows(population.get("feasible")),
+        strict=True,
+    ):
+        if all(bool(value) for value in feasible):
+            genomes.append(genome)
+            objectives.append(values)
+    return genomes, objectives
 
 
 def _float_rows(raw: Any) -> list[list[float]]:
@@ -121,7 +159,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--ip-pool",
-        default=str(REPO_ROOT / "configs" / "ip_pool_example.yaml"),
+        default=str(REPO_ROOT / "configs" / "ip_pool_synthetic_65nm.yaml"),
         help="Path to the Level 2 IP pool YAML.",
     )
     parser.add_argument(
@@ -202,6 +240,11 @@ def main() -> int:
         from talos.architecture.level1_importer import (
             abstract_accelerator_from_level1_config,
         )
+        from talos.evaluation.cacti_costs import (
+            calibrate_synthetic_dram_ip,
+            characterize_level1_energy,
+            write_energy_calibration,
+        )
         from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
         from talos.ga.pymoo_runner import run_nsga2_pymoo
         from talos.ip import IPPool
@@ -218,20 +261,64 @@ def main() -> int:
         return 2
 
     pool = IPPool.from_yaml(ip_pool_path)
-    power_required = (
-        any(name in args.level2_objectives for name in ("energy", "power"))
-        or constraints.max_power_w is not None
-    )
-    activity_evaluator = (
-        ZigZagEvaluator(
-            workload=str(workload),
-            debug=args.debug,
-            workdir=str(results_dir / "level1_profiles"),
-            lpf_limit=1,
-            nb_spatial_mappings_generated=1,
+    dram_ips = pool.by_type("dram")
+    if len(dram_ips) != 1:
+        print(
+            "ERROR: the IP pool must contain exactly one characterized DRAM.",
+            file=sys.stderr,
         )
-        if power_required
-        else None
+        return 2
+    dram_ip = dram_ips[0]
+    dram_accesses_per_cycle = float(
+        (dram_ip.metadata or {})["accesses_per_cycle"]
+    )
+    if dram_ip.bandwidth_bits is None or dram_ip.power_model is None:
+        print(
+            "ERROR: DRAM requires bandwidth_bits and power_model.",
+            file=sys.stderr,
+        )
+        return 2
+    print(
+        "[Calibration] Characterizing Level 1 energy with CACTI at "
+        f"{pool.technology_nm:g} nm..."
+    )
+    try:
+        energy_calibration = characterize_level1_energy(
+            technology_nm=pool.technology_nm,
+        )
+        calibrated_dram_ip = calibrate_synthetic_dram_ip(
+            dram_ip,
+            energy_calibration,
+        )
+        pool = IPPool(
+            [
+                calibrated_dram_ip if ip.id == dram_ip.id else ip
+                for ip in pool.ip_blocks
+            ],
+            technology_nm=pool.technology_nm,
+        )
+        dram_ip = calibrated_dram_ip
+        calibration_path = write_energy_calibration(
+            results_dir / "energy_calibration.json",
+            energy_calibration,
+            dram_bus_width_bits=dram_ip.bandwidth_bits,
+            dram_power_model=dram_ip.power_model,
+        )
+    except Exception as exc:
+        print(f"ERROR: Level 1 energy calibration failed: {exc}", file=sys.stderr)
+        return 2
+    print(f"[Calibration] JSON: {calibration_path}")
+    activity_evaluator = ZigZagEvaluator(
+        workload=str(workload),
+        opt=mapping_objective_for_level1(args.level1_objectives),
+        debug=args.debug,
+        workdir=str(results_dir / "level1_profiles"),
+        lpf_limit=1,
+        nb_spatial_mappings_generated=1,
+        dram_bandwidth_bits=dram_ip.bandwidth_bits,
+        dram_accesses_per_cycle=dram_accesses_per_cycle,
+        dram_power_model=dram_ip.power_model,
+        energy_calibration=energy_calibration,
     )
 
     print("[Level 1] Running small architecture exploration...")
@@ -249,6 +336,10 @@ def main() -> int:
             zigzag_lpf_limit=1,
             zigzag_spatial_mappings=1,
             constraints=constraints,
+            dram_bandwidth_bits=dram_ip.bandwidth_bits,
+            dram_accesses_per_cycle=dram_accesses_per_cycle,
+            dram_power_model=dram_ip.power_model,
+            energy_calibration=energy_calibration,
         )
     except ModuleNotFoundError as exc:
         missing = exc.name or str(exc)
@@ -261,11 +352,13 @@ def main() -> int:
         )
         return 2
 
-    level1_genomes = iter_level1_genomes(level1_result)
-    level1_objectives = iter_level1_objectives(level1_result)
+    level1_genomes, level1_objectives = iter_level1_candidates(level1_result)
     level1_csv_path = _level1_csv_path(level1_result)
 
-    print(f"[Level 1] Found {len(level1_genomes)} candidate architecture(s).")
+    print(
+        f"[Level 1] Considering {len(level1_genomes)} Pareto/final-population "
+        "candidate row(s)."
+    )
     if level1_csv_path:
         print(f"[Level 1] CSV: {level1_csv_path}")
     if not level1_genomes:
@@ -274,6 +367,7 @@ def main() -> int:
         print(f"Summary CSV written to: {summary_path}")
         return 0
 
+    flow_failures: list[str] = []
     candidates = select_level1_candidates(
         level1_genomes=level1_genomes,
         level1_objectives=level1_objectives,
@@ -286,9 +380,9 @@ def main() -> int:
             abstract_accelerator_from_level1_config
         ),
         constraints=constraints,
-        evaluate_activity=(
-            None if activity_evaluator is None else activity_evaluator.evaluate
-        ),
+        evaluate_activity=activity_evaluator.evaluate,
+        exhaustive_max_combinations=args.level2_exhaustive_max_combinations,
+        failures=flow_failures,
     )
     print(
         f"[Level 1] Passing {len(candidates)} architecture(s) to Level 2."
@@ -298,9 +392,10 @@ def main() -> int:
         summary_path = write_summary_csv(results_dir, [])
         print("No Level 1 architecture was compatible with the IP pool.")
         print(f"Summary CSV written to: {summary_path}")
-        return 0
+        return 1 if flow_failures else 0
 
     summary_rows: list[dict[str, Any]] = []
+    level2_failures = len(flow_failures)
     for candidate in candidates:
         arch_index = candidate.source_index
         genome = candidate.raw_genome
@@ -331,7 +426,11 @@ def main() -> int:
                 exhaustive_max_combinations=args.level2_exhaustive_max_combinations,
             )
         except Exception as exc:
-            print(f"  Level 2 failed for this architecture: {exc}")
+            level2_failures += 1
+            print(
+                f"  Level 2 failed for this architecture: {exc}",
+                file=sys.stderr,
+            )
             print()
             continue
 
@@ -353,6 +452,7 @@ def main() -> int:
                 level2_csv_path=level2_result.csv_path,
                 level2_solutions=level2_result.solutions,
                 constraints=constraints,
+                level1_evaluation=candidate.evaluation,
             )
         )
 
@@ -364,7 +464,7 @@ def main() -> int:
     if not summary_rows:
         print("No combined Level 1 -> Level 2 rows were produced.")
     print(f"Summary CSV written to: {summary_path}")
-    return 0
+    return 1 if level2_failures else 0
 
 
 def _level1_csv_path(result: Any) -> str:
@@ -385,6 +485,8 @@ def select_level1_candidates(
     abstract_accelerator_from_level1_config: Any,
     constraints: UserConstraints | None = None,
     evaluate_activity: Any | None = None,
+    exhaustive_max_combinations: int = 100_000,
+    failures: list[str] | None = None,
 ) -> list[Level1Candidate]:
     candidates: list[Level1Candidate] = []
     seen_discrete_genomes: set[tuple[int, ...]] = set()
@@ -403,6 +505,8 @@ def select_level1_candidates(
             compatibility_error = first_ip_compatibility_error(accelerator, pool)
         except Exception as exc:
             print(f"[Level 1] Skipping architecture {source_index}: {exc}")
+            if failures is not None:
+                failures.append(str(exc))
             continue
 
         if compatibility_error:
@@ -410,6 +514,8 @@ def select_level1_candidates(
                 f"[Level 1] Skipping architecture {source_index}: "
                 f"{compatibility_error}"
             )
+            if failures is not None:
+                failures.append(compatibility_error)
             continue
 
         objective_values = (
@@ -429,6 +535,7 @@ def select_level1_candidates(
             )
             continue
 
+        activity_result = None
         activity_profile = None
         if evaluate_activity is not None:
             activity_result = evaluate_activity(genome)
@@ -437,8 +544,53 @@ def select_level1_candidates(
                     f"[Level 1] Skipping architecture {source_index}: "
                     f"{activity_result.error_message or 'activity profile is unavailable'}"
                 )
+                if failures is not None:
+                    failures.append(
+                        activity_result.error_message
+                        or "activity profile is unavailable"
+                    )
                 continue
             activity_profile = activity_result.activity_profile
+
+        if constraints is not None and constraints.level2_constraint_count:
+            try:
+                from talos.level2.genome import Level2GenomeSpec
+                from talos.level2.exhaustive_runner import run_level2_exhaustive
+
+                combination_count = Level2GenomeSpec.from_accelerator_and_pool(
+                    accelerator,
+                    pool,
+                ).genome_count()
+                physical_result = (
+                    None
+                    if combination_count > exhaustive_max_combinations
+                    else run_level2_exhaustive(
+                        accelerator=accelerator,
+                        ip_pool=pool,
+                        objective_names=["area"],
+                        constraints=constraints,
+                        activity_profile=activity_profile,
+                        max_combinations=exhaustive_max_combinations,
+                        save_csv=False,
+                    )
+                )
+            except Exception as exc:
+                print(f"[Level 1] Skipping architecture {source_index}: {exc}")
+                if failures is not None:
+                    failures.append(str(exc))
+                continue
+            if physical_result is None:
+                print(
+                    f"[Level 1] Physical prefilter skipped for architecture "
+                    f"{source_index}: {combination_count} combinations exceed "
+                    f"the {exhaustive_max_combinations} limit"
+                )
+            elif not physical_result.solutions:
+                print(
+                    f"[Level 1] Skipping architecture {source_index}: "
+                    "no Level 2 combination satisfies the physical constraints"
+                )
+                continue
 
         seen_discrete_genomes.add(discrete_key)
         candidates.append(
@@ -450,6 +602,7 @@ def select_level1_candidates(
                 architecture_config=config,
                 accelerator=accelerator,
                 activity_profile=activity_profile,
+                evaluation=activity_result,
             )
         )
 
@@ -508,28 +661,37 @@ def build_summary_rows(
     level2_csv_path: Path | None,
     level2_solutions: list[dict[str, Any]],
     constraints: UserConstraints | None,
+    level1_evaluation: EvaluationResult | None = None,
 ) -> list[dict[str, Any]]:
     if not level2_solutions:
         return []
 
     level1_by_name = dict(zip(level1_objective_names, level1_objective_values))
+    if level1_evaluation is not None and level1_evaluation.valid:
+        level1_by_name.update(
+            {
+                "latency": level1_evaluation.latency,
+                "energy": level1_evaluation.energy,
+                "area": level1_evaluation.area,
+            }
+        )
     latency_cycles = level1_by_name.get("latency", "")
     area_proxy = level1_by_name.get("area", "")
     rows: list[dict[str, Any]] = []
     for solution in level2_solutions:
-        implementation_fmax_mhz = solution.get("implementation_fmax_mhz")
+        workload_latency_s = solution.get("workload_latency_s")
         constraint_violations = _combined_constraint_violations(
             constraints=constraints,
             latency_cycles=latency_cycles,
             level2_violations=solution.get("constraint_violations", []),
         )
-        constraints_satisfied = bool(solution.get("valid", False)) and not constraint_violations
-        fps = (
-            estimated_fps(
-                latency_cycles=float(latency_cycles),
-                implementation_fmax_mhz=implementation_fmax_mhz,
-            )
-            if constraints_satisfied and latency_cycles != ""
+        constraints_satisfied = (
+            bool(solution.get("valid", False))
+            and not constraint_violations
+        )
+        inference_rate = (
+            solution.get("workload_throughput_ips")
+            if constraints_satisfied
             else None
         )
         rows.append(
@@ -544,9 +706,15 @@ def build_summary_rows(
                 "level1_latency": level1_by_name.get("latency", ""),
                 "level1_energy": level1_by_name.get("energy", ""),
                 "level1_area_proxy": area_proxy,
+                "zigzag_mapping_objective": (
+                    ""
+                    if level1_evaluation is None
+                    else level1_evaluation.mapping_objective or ""
+                ),
                 "level2_solution_index": solution.get("solution_index", ""),
                 "level2_genome": solution.get("genome", ""),
                 "selected_ips": solution.get("selected_ips", ""),
+                "covered_by_pe": solution.get("covered_by_pe", ""),
                 "level2_objective_names": solution.get(
                     "objective_names",
                     level2_objective_names,
@@ -555,19 +723,47 @@ def build_summary_rows(
                 "level2_area": solution.get("area", ""),
                 "level2_power": solution.get("power", ""),
                 "workload_energy_j": solution.get("workload_energy_j", ""),
-                "workload_latency_s": solution.get("workload_latency_s", ""),
-                "dram_accesses": solution.get("dram_accesses", ""),
-                "dram_access_energy_j": solution.get(
-                    "dram_access_energy_j",
+                "layer_cycles_mapping": solution.get(
+                    "layer_cycles_mapping",
                     "",
                 ),
-                "level2_delay": solution.get("delay", ""),
-                "level2_throughput": solution.get("throughput", ""),
-                "implementation_fmax_mhz": implementation_fmax_mhz,
+                "workload_cycles_per_inference": solution.get(
+                    "workload_cycles_per_inference",
+                    "",
+                ),
+                "workload_latency_s": (
+                    "" if workload_latency_s is None else workload_latency_s
+                ),
+                "workload_throughput_ips": solution.get(
+                    "workload_throughput_ips",
+                    "",
+                ),
+                "reference_frequency_mhz": solution.get(
+                    "reference_frequency_mhz",
+                    "",
+                ),
+                "reference_voltage_v": solution.get(
+                    "reference_voltage_v",
+                    "",
+                ),
+                "dram_accesses": solution.get("dram_accesses", ""),
+                "dram_energy_j": solution.get(
+                    "dram_energy_j",
+                    "",
+                ),
+                "physical_critical_delay": solution.get(
+                    "physical_critical_delay",
+                    "",
+                ),
+                "selected_ip_min_throughput": solution.get(
+                    "selected_ip_min_throughput",
+                    "",
+                ),
+                "physical_fmax_mhz": solution.get("physical_fmax_mhz", ""),
+                "timing_margin_mhz": solution.get("timing_margin_mhz", ""),
                 "level2_valid": solution.get("valid", ""),
                 "constraints_satisfied": constraints_satisfied,
                 "constraint_violations": constraint_violations,
-                "estimated_fps": "" if fps is None else fps,
                 "level2_strategy": solution.get("strategy", ""),
                 "level2_explored_combinations": solution.get(
                     "explored_combinations",
@@ -613,7 +809,7 @@ def write_summary_csv(results_dir: Path, rows: list[dict[str, Any]]) -> Path:
 
 
 def csv_value(value: Any) -> Any:
-    if isinstance(value, (list, dict)):
+    if isinstance(value, (list, tuple, dict)):
         return json.dumps(value, sort_keys=True)
     return value
 
@@ -623,14 +819,23 @@ def print_first_solution(solution: dict[str, Any]) -> None:
     print(f"    area: {solution.get('area')}")
     print(f"    power: {solution.get('power')}")
     print(f"    workload_energy_j: {solution.get('workload_energy_j')}")
+    print(f"    layer_cycles_mapping: {solution.get('layer_cycles_mapping')}")
+    print(
+        "    workload_cycles_per_inference: "
+        f"{solution.get('workload_cycles_per_inference')}"
+    )
     print(f"    workload_latency_s: {solution.get('workload_latency_s')}")
+    print(f"    workload_throughput_ips: {solution.get('workload_throughput_ips')}")
+    print(f"    reference_frequency_mhz: {solution.get('reference_frequency_mhz')}")
+    print(f"    reference_voltage_v: {solution.get('reference_voltage_v')}")
     print(f"    dram_accesses: {solution.get('dram_accesses')}")
-    print(f"    dram_access_energy_j: {solution.get('dram_access_energy_j')}")
-    print(f"    delay: {solution.get('delay')}")
-    print(f"    throughput: {solution.get('throughput')}")
-    print(f"    fmax_mhz: {solution.get('implementation_fmax_mhz')}")
+    print(f"    dram_energy_j: {solution.get('dram_energy_j')}")
+    print(f"    physical_critical_delay: {solution.get('physical_critical_delay')}")
+    print(f"    physical_fmax_mhz: {solution.get('physical_fmax_mhz')}")
+    print(f"    timing_margin_mhz: {solution.get('timing_margin_mhz')}")
     print(f"    constraints_satisfied: {solution.get('constraints_satisfied')}")
     print(f"    selected IPs: {solution.get('selected_ips')}")
+    print(f"    RFs covered by PE: {solution.get('covered_by_pe')}")
 
 
 if __name__ == "__main__":

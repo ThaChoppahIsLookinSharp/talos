@@ -15,8 +15,16 @@ from nsga2.evolution import Evolution
 from nsga2.problem import Problem
 
 from talos.architecture.genome import GENOME_LENGTH, gene_bounds, gene_names
+from talos.evaluation.cacti_costs import (
+    Level1EnergyCalibration,
+    characterize_level1_energy,
+    write_energy_calibration,
+)
 from talos.evaluation.objective_adapter import ObjectiveAdapter
-from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
+from talos.evaluation.zigzag_evaluator import (
+    ZigZagEvaluator,
+    mapping_objective_for_level1,
+)
 
 
 DEFAULT_OBJECTIVES = ["latency", "energy", "area"]
@@ -26,11 +34,13 @@ DEFAULT_OBJECTIVES = ["latency", "energy", "area"]
 class NSGA2RunResult:
     final_front: list[Any]
     csv_path: str | None
+    energy_calibration_path: str
     objective_names: list[str]
     gene_names: list[str]
     seed: int
     num_of_generations: int
     num_of_individuals: int
+    zigzag_mapping_objective: str
 
 
 def run_nsga2(
@@ -42,6 +52,7 @@ def run_nsga2(
     debug: bool = False,
     save_csv: bool = True,
     results_dir: str | None = None,
+    energy_calibration: Level1EnergyCalibration | None = None,
 ) -> NSGA2RunResult:
     objective_names = list(objective_names or DEFAULT_OBJECTIVES)
     if not objective_names:
@@ -61,7 +72,21 @@ def run_nsga2(
     except ImportError:
         pass
 
-    evaluator = ZigZagEvaluator(workload=workload_path, debug=debug)
+    zigzag_mapping_objective = mapping_objective_for_level1(objective_names)
+    energy_calibration = energy_calibration or characterize_level1_energy()
+    evaluator = ZigZagEvaluator(
+        workload=workload_path,
+        opt=zigzag_mapping_objective,
+        debug=debug,
+        energy_calibration=energy_calibration,
+    )
+    output_dir = Path(results_dir) if results_dir is not None else Path.cwd() / "results"
+    calibration_path = write_energy_calibration(
+        output_dir / "energy_calibration.json",
+        energy_calibration,
+        dram_bus_width_bits=evaluator.dram_bandwidth_bits,
+        dram_power_model=evaluator.dram_power_model,
+    )
     adapter = ObjectiveAdapter(evaluator, verbose=debug)
     objectives = adapter.build_objectives(objective_names)
 
@@ -79,6 +104,7 @@ def run_nsga2(
         problem,
         num_of_generations=num_of_generations,
         num_of_individuals=num_of_individuals,
+        zigzag_mapping_objective=zigzag_mapping_objective,
     )
 
     if debug:
@@ -107,11 +133,13 @@ def run_nsga2(
     return NSGA2RunResult(
         final_front=final_front,
         csv_path=csv_path,
+        energy_calibration_path=str(calibration_path),
         objective_names=objective_names,
         gene_names=names,
         seed=seed,
         num_of_generations=num_of_generations,
         num_of_individuals=num_of_individuals,
+        zigzag_mapping_objective=zigzag_mapping_objective,
     )
 
 
@@ -140,6 +168,7 @@ def _write_results_csv(
         "seed",
         "num_of_generations",
         "num_of_individuals",
+        "zigzag_mapping_objective",
         "latency",
         "energy",
         "area",
@@ -167,6 +196,9 @@ def _write_results_csv(
                 "seed": seed,
                 "num_of_generations": num_of_generations,
                 "num_of_individuals": num_of_individuals,
+                "zigzag_mapping_objective": mapping_objective_for_level1(
+                    objective_names
+                ),
                 "latency": result.latency,
                 "energy": result.energy,
                 "area": result.area,

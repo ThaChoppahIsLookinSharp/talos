@@ -41,7 +41,7 @@ class UserConstraints:
         *,
         area_mm2: float,
         power_w: float | None,
-        implementation_fmax_mhz: float | None,
+        physical_fmax_mhz: float | None,
     ) -> list[str]:
         violations: list[str] = []
         if self.max_area_mm2 is not None and area_mm2 > self.max_area_mm2:
@@ -58,23 +58,77 @@ class UserConstraints:
                     f"power_w {power_w} exceeds max_power_w {self.max_power_w}"
                 )
         if self.min_frequency_mhz is not None:
-            if implementation_fmax_mhz is None:
-                violations.append("implementation_fmax_mhz is unavailable")
-            elif implementation_fmax_mhz < self.min_frequency_mhz:
+            if physical_fmax_mhz is None:
+                violations.append("physical_fmax_mhz is unavailable")
+            elif physical_fmax_mhz < self.min_frequency_mhz:
                 violations.append(
-                    "implementation_fmax_mhz "
-                    f"{implementation_fmax_mhz} is below min_frequency_mhz {self.min_frequency_mhz}"
+                    "physical_fmax_mhz "
+                    f"{physical_fmax_mhz} is below min_frequency_mhz {self.min_frequency_mhz}"
                 )
         return violations
+
+    @property
+    def level2_constraint_count(self) -> int:
+        return sum(
+            value is not None
+            for value in (
+                self.max_area_mm2,
+                self.max_power_w,
+                self.min_frequency_mhz,
+            )
+        )
+
+    def level2_constraint_values(
+        self,
+        *,
+        area_mm2: float,
+        power_w: float | None,
+        physical_fmax_mhz: float | None,
+    ) -> list[float]:
+        values: list[float] = []
+        if self.max_area_mm2 is not None:
+            values.append(area_mm2 - self.max_area_mm2)
+        if self.max_power_w is not None:
+            values.append(
+                float("inf")
+                if power_w is None
+                else power_w - self.max_power_w
+            )
+        if self.min_frequency_mhz is not None:
+            values.append(
+                float("inf")
+                if physical_fmax_mhz is None
+                else self.min_frequency_mhz - physical_fmax_mhz
+            )
+        return values
+
+
+def estimated_inferences_per_second(
+    *,
+    workload_latency_s: float | None,
+) -> float | None:
+    if (
+        workload_latency_s is None
+        or workload_latency_s <= 0
+        or not math.isfinite(workload_latency_s)
+    ):
+        return None
+    return 1.0 / workload_latency_s
 
 
 def estimated_fps(
     *,
-    latency_cycles: float,
-    implementation_fmax_mhz: float | None,
+    workload_latency_s: float | None = None,
+    latency_cycles: float | None = None,
+    implementation_fmax_mhz: float | None = None,
 ) -> float | None:
+    if workload_latency_s is not None:
+        return estimated_inferences_per_second(
+            workload_latency_s=workload_latency_s,
+        )
     if (
-        implementation_fmax_mhz is None
+        latency_cycles is None
+        or implementation_fmax_mhz is None
         or latency_cycles <= 0
         or not math.isfinite(latency_cycles)
     ):

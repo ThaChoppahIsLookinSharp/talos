@@ -75,8 +75,9 @@ memories:
     served_dimensions: [D1, D2]
   dram:
     size: 1000000000000
-    r_cost: 1000.0
-    w_cost: 1000.0
+    # (8.98 W active - 0.02 W idle) / 500 Maccess/s.
+    r_cost: 17920.0
+    w_cost: 17920.0
     area: 0.0
     latency: 1
     mem_type: dram

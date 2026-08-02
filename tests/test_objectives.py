@@ -6,12 +6,17 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from talos.evaluation.objective_adapter import ObjectiveAdapter
+from talos.evaluation.cacti_costs import characterize_level1_energy
 from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
 
 
 def main() -> None:
     workload = Path("workloads/alexnet.onnx").resolve()
-    evaluator = ZigZagEvaluator(str(workload), debug=False)
+    evaluator = ZigZagEvaluator(
+        str(workload),
+        debug=False,
+        energy_calibration=characterize_level1_energy(),
+    )
     adapter = ObjectiveAdapter(evaluator)
     genome = [2, 2, 3, 2, 3, 2, 3]
 
