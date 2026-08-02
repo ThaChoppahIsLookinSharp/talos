@@ -520,6 +520,7 @@ class UserConstraintsTests(unittest.TestCase):
         pool = SimpleNamespace(
             by_type=lambda ip_type: [dram] if ip_type == "dram" else [],
             ip_blocks=[dram],
+            technology_nm=65,
         )
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -567,7 +568,7 @@ class UserConstraintsTests(unittest.TestCase):
                     patch(
                         "talos.evaluation.cacti_costs.characterize_level1_energy",
                         return_value=object(),
-                    ),
+                    ) as characterize,
                     patch(
                         "talos.evaluation.cacti_costs.calibrate_synthetic_dram_ip",
                         return_value=dram,
@@ -585,6 +586,7 @@ class UserConstraintsTests(unittest.TestCase):
                     run_patch,
                 ):
                     self.assertEqual(full_flow_main(), expected_code)
+                    characterize.assert_called_once_with(technology_nm=65)
 
     def test_constraint_sweep_builds_seven_worker_aware_commands(self) -> None:
         cases = sweep_cases()

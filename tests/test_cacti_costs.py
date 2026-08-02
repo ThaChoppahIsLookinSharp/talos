@@ -103,7 +103,7 @@ class CactiParserTests(unittest.TestCase):
                         expected_bandwidth_bits=64,
                     )
 
-    def test_config_uses_bits_for_io_bytes_for_line_and_65nm(self) -> None:
+    def test_config_uses_requested_pool_technology(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "cache.cfg"
             _write_cacti_config(
@@ -111,13 +111,14 @@ class CactiParserTests(unittest.TestCase):
                 capacity_bytes=1024,
                 bandwidth_bits=64,
                 line_size_bytes=8,
+                technology_um=0.040,
             )
             text = path.read_text(encoding="utf-8")
 
         self.assertIn("-size (bytes) 1024", text)
         self.assertIn("-block size (bytes) 8", text)
         self.assertIn("-output/input bus width 64", text)
-        self.assertIn("-technology (u) 0.065", text)
+        self.assertIn("-technology (u) 0.04", text)
 
 
 class EnergyCalibrationTests(unittest.TestCase):
@@ -133,7 +134,9 @@ class EnergyCalibrationTests(unittest.TestCase):
                 role: str,
                 capacity_bits: int,
                 bandwidth_bits: int,
+                technology_um: float,
             ) -> CactiMemoryCost:
+                self.assertEqual(technology_um, 0.040)
                 energy = 60 if role == "reference_global_buffer" else 10
                 return CactiMemoryCost(
                     capacity_bits,
@@ -152,10 +155,11 @@ class EnergyCalibrationTests(unittest.TestCase):
                     wraps=shutil.copytree,
                 ) as copytree,
             ):
-                result = characterize_level1_energy(master)
+                result = characterize_level1_energy(master, technology_nm=40)
 
         self.assertEqual(copytree.call_count, 1)
         self.assertEqual(characterize.call_count, 26)
+        self.assertEqual(result.technology_nm, 40)
         self.assertEqual(len(result.gb_costs), 25)
         self.assertEqual(
             {

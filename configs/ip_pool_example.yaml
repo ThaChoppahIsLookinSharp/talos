@@ -1,3 +1,5 @@
+technology_nm: 65
+
 ips:
   - id: pe_mac_8b_low_power
     type: pe

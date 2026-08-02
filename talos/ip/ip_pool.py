@@ -15,10 +15,19 @@ INCLUDED_RF_ROLES = frozenset({"rf_i1", "rf_i2", "rf_o"})
 
 
 class IPPool:
-    def __init__(self, ip_blocks: list[IPBlock]) -> None:
+    def __init__(
+        self,
+        ip_blocks: list[IPBlock],
+        technology_nm: float | None = None,
+    ) -> None:
         if not ip_blocks:
             raise ValueError("IPPool requires at least one IPBlock.")
+        if technology_nm is not None and (
+            not math.isfinite(technology_nm) or technology_nm <= 0
+        ):
+            raise ValueError("IPPool technology_nm must be finite and > 0.")
         self.ip_blocks = list(ip_blocks)
+        self.technology_nm = technology_nm
         self._validate_composition()
 
     def _validate_composition(self) -> None:
@@ -79,6 +88,12 @@ class IPPool:
         data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             raise ValueError("IP pool YAML must contain a top-level mapping.")
+        try:
+            technology_nm = float(data["technology_nm"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "IP pool YAML must contain a positive top-level 'technology_nm'."
+            ) from exc
         raw_ips = data.get("ips")
         if not isinstance(raw_ips, list):
             raise ValueError("IP pool YAML must contain an 'ips' list.")
@@ -104,7 +119,7 @@ class IPPool:
                 ip_blocks.append(IPBlock(**values))
             except TypeError as exc:
                 raise ValueError(f"Invalid IP entry at index {index}: {raw_ip!r}") from exc
-        return cls(ip_blocks)
+        return cls(ip_blocks, technology_nm=technology_nm)
 
     def by_type(self, ip_type: str) -> list[IPBlock]:
         return [ip for ip in self.ip_blocks if ip.type == ip_type]
@@ -134,4 +149,7 @@ class IPPool:
         return compatible
 
     def to_dict(self) -> dict[str, Any]:
-        return {"ips": [asdict(ip) for ip in self.ip_blocks]}
+        return {
+            "technology_nm": self.technology_nm,
+            "ips": [asdict(ip) for ip in self.ip_blocks],
+        }

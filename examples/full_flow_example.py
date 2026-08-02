@@ -278,9 +278,14 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
-    print("[Calibration] Characterizing Level 1 energy with CACTI at 65 nm...")
+    print(
+        "[Calibration] Characterizing Level 1 energy with CACTI at "
+        f"{pool.technology_nm:g} nm..."
+    )
     try:
-        energy_calibration = characterize_level1_energy()
+        energy_calibration = characterize_level1_energy(
+            technology_nm=pool.technology_nm,
+        )
         calibrated_dram_ip = calibrate_synthetic_dram_ip(
             dram_ip,
             energy_calibration,
@@ -289,7 +294,8 @@ def main() -> int:
             [
                 calibrated_dram_ip if ip.id == dram_ip.id else ip
                 for ip in pool.ip_blocks
-            ]
+            ],
+            technology_nm=pool.technology_nm,
         )
         dram_ip = calibrated_dram_ip
         calibration_path = write_energy_calibration(

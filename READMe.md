@@ -69,7 +69,8 @@ rate, and idle/active power come from the single `type: dram` entry in the IP
 pool; standalone Level 1 runs default to a 512-bit synthetic DRAM.
 
 Before starting any Level 1 workers, TALOS runs the CACTI binary bundled with
-ZigZag at 65 nm. It characterizes all 25 `gb_size_code × gb_bw_code`
+ZigZag at the `technology_nm` declared by the selected IP pool. It characterizes
+all 25 `gb_size_code × gb_bw_code`
 combinations and one fixed 128 KiB, 16-bit SRAM reference. CACTI is copied to a
 temporary directory once per flow and is never run by a candidate, layer, or
 worker. CACTI requires a physical depth of at least 32 words, so the logical
@@ -387,7 +388,16 @@ These objective-sweep defaults are calibrated to leave a useful feasible region 
 
 ## IP pool format
 
-IP pools are YAML files with an `ips` list. The two included pools are:
+IP pools are YAML files with one technology for the whole pool and an `ips`
+list:
+
+```yaml
+technology_nm: 65
+ips:
+  # PE, RF, GB and DRAM entries
+```
+
+The two included pools are:
 
 - `configs/ip_pool_example.yaml`: illustrative values for small examples.
 - `configs/ip_pool_synthetic_65nm.yaml`: synthetic values used by tests and sweeps; they are not foundry characterization.

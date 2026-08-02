@@ -67,11 +67,17 @@ class IPFoundationTests(unittest.TestCase):
             pes[0].power_model.p_active_w,
         )
 
+    def test_ip_pool_loads_global_technology(self) -> None:
+        pool = IPPool.from_yaml(IP_POOL_PATH)
+
+        self.assertEqual(pool.technology_nm, 65)
+
     def test_ip_pool_rejects_old_power_field(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "legacy.yaml"
             path.write_text(
                 """
+technology_nm: 65
 ips:
   - id: pe
     type: pe
@@ -115,6 +121,7 @@ ips:
             path = Path(tmp) / "composite.yaml"
             path.write_text(
                 """
+technology_nm: 65
 ips:
   - id: pe_tile
     type: pe

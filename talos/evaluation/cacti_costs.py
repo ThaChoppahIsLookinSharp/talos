@@ -15,7 +15,7 @@ from talos.architecture.genome import GB_BW_OPTIONS, GB_SIZE_OPTIONS
 from talos.ip.ip_characterization import IPBlock, PowerCharacterization
 
 
-TECHNOLOGY_UM = 0.065
+DEFAULT_TECHNOLOGY_NM = 65.0
 REFERENCE_GB_CAPACITY_BYTES = 128 * 1024
 REFERENCE_WORD_BITS = 16
 RF_TO_MAC = 1.0
@@ -35,7 +35,7 @@ class CactiMemoryCost:
 
 @dataclass(frozen=True)
 class Level1EnergyCalibration:
-    technology_nm: int
+    technology_nm: float
     reference_gb_capacity_bytes: int
     reference_word_bits: int
     reference_gb_read_energy_pj: float
@@ -132,7 +132,12 @@ class Level1EnergyCalibration:
 
 def characterize_level1_energy(
     cacti_master_path: str | Path | None = None,
+    *,
+    technology_nm: float = DEFAULT_TECHNOLOGY_NM,
 ) -> Level1EnergyCalibration:
+    if not math.isfinite(technology_nm) or technology_nm <= 0:
+        raise ValueError("CACTI technology_nm must be finite and > 0.")
+    technology_um = technology_nm / 1000
     source = (
         Path(cacti_master_path).resolve()
         if cacti_master_path is not None
@@ -143,7 +148,7 @@ def characterize_level1_energy(
         raise FileNotFoundError(
             "CACTI executable is missing: "
             f"role=all, capacity=various, bandwidth=various, "
-            f"technology={TECHNOLOGY_UM}, path={executable}"
+            f"technology={technology_um}, path={executable}"
         )
 
     with tempfile.TemporaryDirectory(prefix="talos_cacti_") as temporary:
@@ -155,6 +160,7 @@ def characterize_level1_energy(
                 role="global_buffer",
                 capacity_bits=capacity_bits,
                 bandwidth_bits=bandwidth_bits,
+                technology_um=technology_um,
             )
             for capacity_bits in GB_SIZE_OPTIONS
             for bandwidth_bits in GB_BW_OPTIONS
@@ -164,6 +170,7 @@ def characterize_level1_energy(
             role="reference_global_buffer",
             capacity_bits=REFERENCE_GB_CAPACITY_BYTES * 8,
             bandwidth_bits=REFERENCE_WORD_BITS,
+            technology_um=technology_um,
         )
 
     mac_energy_pj = (
@@ -176,10 +183,10 @@ def characterize_level1_energy(
             f"role=reference_global_buffer, "
             f"capacity={REFERENCE_GB_CAPACITY_BYTES} bytes, "
             f"bandwidth={REFERENCE_WORD_BITS} bits, "
-            f"technology={TECHNOLOGY_UM}, energy={mac_energy_pj}"
+            f"technology={technology_um}, energy={mac_energy_pj}"
         )
     return Level1EnergyCalibration(
-        technology_nm=int(round(TECHNOLOGY_UM * 1000)),
+        technology_nm=technology_nm,
         reference_gb_capacity_bytes=REFERENCE_GB_CAPACITY_BYTES,
         reference_word_bits=REFERENCE_WORD_BITS,
         reference_gb_read_energy_pj=reference.read_energy_pj_per_access,
@@ -361,6 +368,7 @@ def _characterize_memory(
     role: str,
     capacity_bits: int,
     bandwidth_bits: int,
+    technology_um: float,
 ) -> CactiMemoryCost:
     if capacity_bits <= 0 or capacity_bits % 8:
         raise ValueError(f"{role} capacity must be a positive whole byte.")
@@ -386,6 +394,7 @@ def _characterize_memory(
         capacity_bytes=capacity_bytes,
         bandwidth_bits=bandwidth_bits,
         line_size_bytes=line_size_bytes,
+        technology_um=technology_um,
     )
     relative_config = config_path.relative_to(cacti_master)
     process = subprocess.run(
@@ -398,7 +407,7 @@ def _characterize_memory(
     context = (
         f"role={role}, capacity={logical_capacity_bytes} bytes, "
         f"cacti_capacity={capacity_bytes} bytes, "
-        f"bandwidth={bandwidth_bits} bits, technology={TECHNOLOGY_UM}, "
+        f"bandwidth={bandwidth_bits} bits, technology={technology_um}, "
         f"return_code={process.returncode}"
     )
     if process.returncode:
@@ -433,6 +442,7 @@ def _write_cacti_config(
     capacity_bytes: int,
     bandwidth_bits: int,
     line_size_bytes: int,
+    technology_um: float,
 ) -> None:
     from zigzag.cacti.cacti_master.cacti_config_creator import CactiConfig
 
@@ -446,7 +456,7 @@ def _write_cacti_config(
         "ex_wr_port": 0,
         "rd_wr_port": 1,
         "bank_count": 1,
-        "technology": TECHNOLOGY_UM,
+        "technology": technology_um,
     }
     config = CactiConfig()
     lines = [
