@@ -400,6 +400,25 @@ python examples/objective_sweep.py \
 
 These objective-sweep defaults are calibrated to leave a useful feasible region in the included synthetic pool; they are not silicon design targets. The constraint sweep intentionally uses much tighter values as regression cases. Use `--no-constraints` to compare objectives without area, power, or frequency limits.
 
+### Latest FP16 sweep
+
+The 2026-08-12 sweep used the first ResNet18 layer and the FP16-only
+65 nm pool. All seven objective cases completed, producing 45600 valid
+rows and 42336 unique physical implementations.
+
+| best observed | case | value |
+|---|---|---:|
+| area | `area` | 0.451629 mm2 |
+| average power | `energy_area` | 0.293842 W |
+| inference energy | `energy_area` | 0.0208520 J |
+| throughput | `performance` | 757.93 inferences/s |
+
+The ONNX workload remains FP32, while both characterized PEs are FP16.
+TALOS retains that mismatch by policy and does not quantize the model,
+so these figures describe an architectural exploration rather than a
+technology-compatible implementation of the workload as-is. See the
+[full sweep report](results/sweep_reports/objective_sweep_fp16_resnet18_first_layer_20260812.md).
+
 ## IP pool format
 
 IP pools are YAML files with one technology for the whole pool and an `ips`
@@ -411,13 +430,16 @@ ips:
   # PE, RF, GB and DRAM entries
 ```
 
-The three included pools are:
+The four included pools are:
 
 - `configs/ip_pool_example.yaml`: illustrative values for small examples.
 - `configs/ip_pool_synthetic_65nm.yaml`: synthetic values used by tests and sweeps; they are not foundry characterization.
 - `configs/ip_pool_characterized_65nm.yaml`: post-synthesis TSMC65 PE
   and memory characterization, plus the calibrated DRAM proxy required
   by the complete flow.
+- `configs/ip_pool_fp16_65nm.yaml`: the two FP16 PEs and the RF and GB
+  characterization from the supplied 65 nm pool, plus a synthetic DRAM
+  proxy recalibrated from CACTI by the complete flow.
 
 The synthetic pool contains 2 PE, 4 register-file, 7 global-buffer choices, and one fixed DRAM. It covers every Level 1 genome and produces at most 896 compatible Level 2 combinations for one architecture, so exhaustive selection is normally preferable. Add variants only from a coherent characterization flow rather than inventing extra points for population size.
 Its 65 nm name matches the Level 1 CACTI technology; all pool PPA values remain
