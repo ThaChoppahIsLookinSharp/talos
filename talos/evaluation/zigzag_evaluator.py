@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
+import copy
 import contextlib
 from dataclasses import dataclass
 import io
@@ -10,7 +11,11 @@ import os
 from pathlib import Path
 import pickle
 from typing import Any
+
+import onnx
+from onnx import ModelProto, NodeProto, TensorProto, helper
 import yaml
+from zigzag.parser.onnx.utils import get_onnx_tensor_type
 
 from talos.architecture.genome import (
     DEFAULT_DRAM_BW_BITS,
@@ -39,6 +44,36 @@ DEFAULT_DRAM_POWER_MODEL = PowerCharacterization(
     corner="tt",
 )
 ZIGZAG_MAPPING_OBJECTIVES = {"energy", "latency", "EDP"}
+ZIGZAG_ONNX_OPERATORS = {"Conv", "QLinearConv", "Gemm", "MatMul"}
+ZIGZAG_PRECISION_ATTRIBUTES = {
+    "act_size",
+    "weight_size",
+    "output_size",
+}
+ONNX_NUMERIC_FORMATS = {
+    TensorProto.FLOAT: ("float32", 32),
+    TensorProto.UINT8: ("uint8", 8),
+    TensorProto.INT8: ("int8", 8),
+    TensorProto.UINT16: ("uint16", 16),
+    TensorProto.INT16: ("int16", 16),
+    TensorProto.INT32: ("int32", 32),
+    TensorProto.INT64: ("int64", 64),
+    TensorProto.FLOAT16: ("float16", 16),
+    TensorProto.DOUBLE: ("float64", 64),
+    TensorProto.UINT32: ("uint32", 32),
+    TensorProto.UINT64: ("uint64", 64),
+    TensorProto.BFLOAT16: ("bfloat16", 16),
+    TensorProto.FLOAT8E4M3FN: ("float8e4m3fn", 8),
+    TensorProto.FLOAT8E4M3FNUZ: ("float8e4m3fnuz", 8),
+    TensorProto.FLOAT8E5M2: ("float8e5m2", 8),
+    TensorProto.FLOAT8E5M2FNUZ: ("float8e5m2fnuz", 8),
+    TensorProto.UINT4: ("uint4", 4),
+    TensorProto.INT4: ("int4", 4),
+    TensorProto.FLOAT4E2M1: ("float4e2m1", 4),
+    TensorProto.FLOAT8E8M0: ("float8e8m0", 8),
+    TensorProto.UINT2: ("uint2", 2),
+    TensorProto.INT2: ("int2", 2),
+}
 
 
 def mapping_objective_for_level1(objective_names: Iterable[str]) -> str:
@@ -53,6 +88,116 @@ def mapping_objective_for_level1(objective_names: Iterable[str]) -> str:
     if latency:
         return "latency"
     return "EDP"
+
+
+def prepare_onnx_workload(
+    workload: str | Path,
+) -> tuple[ModelProto, dict[int, dict[str, str]]]:
+    """Infer ONNX types and make ZigZag use their bit widths."""
+    path = Path(workload)
+    try:
+        model = onnx.load(path, load_external_data=False)
+        model = onnx.shape_inference.infer_shapes(model)
+    except Exception as exc:
+        raise ValueError(
+            f"Unable to load and infer ONNX workload {path}: {exc}"
+        ) from exc
+
+    formats_by_layer: dict[int, dict[str, str]] = {}
+    for node_index, node in enumerate(model.graph.node):
+        if node.op_type not in ZIGZAG_ONNX_OPERATORS:
+            continue
+        weight_index = 3 if node.op_type == "QLinearConv" else 1
+        if len(node.input) <= weight_index or not node.output:
+            raise ValueError(
+                f"ONNX node {_node_label(node, node_index)!r} has no "
+                "activation, weight or output tensor."
+            )
+        activation = _tensor_numeric_format(
+            model,
+            node.input[0],
+            node,
+            node_index,
+        )
+        weight = _tensor_numeric_format(
+            model,
+            node.input[weight_index],
+            node,
+            node_index,
+        )
+        output = _tensor_numeric_format(
+            model,
+            node.output[0],
+            node,
+            node_index,
+        )
+        _replace_zigzag_precision_attributes(
+            node,
+            activation_bits=activation[1],
+            weight_bits=weight[1],
+            output_bits=output[1],
+        )
+        formats_by_layer[node_index] = {
+            "I": activation[0],
+            "W": weight[0],
+            "O": output[0],
+        }
+    return model, formats_by_layer
+
+
+def _tensor_numeric_format(
+    model: ModelProto,
+    tensor_name: str,
+    node: NodeProto,
+    node_index: int,
+) -> tuple[str, int]:
+    try:
+        elem_type = get_onnx_tensor_type(tensor_name, model).elem_type
+    except KeyError as exc:
+        raise ValueError(
+            f"Unable to infer type for tensor {tensor_name!r} "
+            "in ONNX "
+            f"node {_node_label(node, node_index)!r}."
+        ) from exc
+    try:
+        return ONNX_NUMERIC_FORMATS[elem_type]
+    except KeyError as exc:
+        try:
+            type_name = TensorProto.DataType.Name(elem_type)
+        except ValueError:
+            type_name = str(elem_type)
+        raise ValueError(
+            f"Unsupported ONNX tensor type {type_name!r} for tensor "
+            f"{tensor_name!r} in node "
+            f"{_node_label(node, node_index)!r}."
+        ) from exc
+
+
+def _replace_zigzag_precision_attributes(
+    node: NodeProto,
+    *,
+    activation_bits: int,
+    weight_bits: int,
+    output_bits: int,
+) -> None:
+    kept = [
+        copy.deepcopy(attribute)
+        for attribute in node.attribute
+        if attribute.name not in ZIGZAG_PRECISION_ATTRIBUTES
+    ]
+    node.ClearField("attribute")
+    node.attribute.extend(kept)
+    node.attribute.extend(
+        [
+            helper.make_attribute("act_size", activation_bits),
+            helper.make_attribute("weight_size", weight_bits),
+            helper.make_attribute("output_size", output_bits),
+        ]
+    )
+
+
+def _node_label(node: NodeProto, node_index: int) -> str:
+    return node.name or f"Op{node_index}"
 
 
 @dataclass
@@ -127,6 +272,11 @@ class ZigZagEvaluator:
         )
         self.mapping_yaml_path = self._write_mapping_yaml(self.mapping)
         self._evaluation_counter = 0
+        self._onnx_workload: ModelProto | None = None
+        self._operand_numeric_formats_by_layer: dict[
+            int,
+            dict[str, str],
+        ] = {}
 
     def evaluate(self, genome: list[float]) -> EvaluationResult:
         try:
@@ -149,7 +299,12 @@ class ZigZagEvaluator:
                 energy=float(energy),
                 area=float(area),
                 valid=True,
-                activity_profile=extract_workload_activity_profile(cme),
+                activity_profile=extract_workload_activity_profile(
+                    cme,
+                    operand_numeric_formats_by_layer=(
+                        self._operand_numeric_formats_by_layer
+                    ),
+                ),
                 mapping_objective=self.opt,
             )
 
@@ -189,7 +344,7 @@ class ZigZagEvaluator:
         dump_folder = self._next_dump_folder()
         pickle_path = Path(dump_folder) / "list_of_cmes.pickle"
         energy, latency, _cumulative_cme = get_hardware_performance_zigzag(
-            workload=self.workload,
+            workload=self._prepared_workload(),
             accelerator=accelerator_yaml_path,
             mapping=self.mapping_yaml_path,
             opt=self.opt,
@@ -202,6 +357,14 @@ class ZigZagEvaluator:
         with pickle_path.open("rb") as handle:
             layer_cmes = pickle.load(handle)
         return energy, latency, layer_cmes
+
+    def _prepared_workload(self) -> ModelProto:
+        if self._onnx_workload is None:
+            (
+                self._onnx_workload,
+                self._operand_numeric_formats_by_layer,
+            ) = prepare_onnx_workload(self.workload)
+        return copy.deepcopy(self._onnx_workload)
 
     def _next_dump_folder(self) -> str:
         """

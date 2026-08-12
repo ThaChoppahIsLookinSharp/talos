@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 import unittest
+import warnings
 from pathlib import Path
 
 from talos.architecture import abstract_accelerator_from_zigzag_yaml
@@ -334,6 +336,102 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
             objective_names=["area", "delay"],
         )
         self.assertIsNone(area_problem.activity_profile)
+
+    def test_pe_format_warning_keeps_finite_result(self) -> None:
+        accelerator = abstract_accelerator_from_level1_config(
+            decode_genome([1, 2, 0, 2, 1, 0, 1])
+        )
+        pool = IPPool.from_yaml(SYNTHETIC_POOL_PATH)
+        fp32_profile = WorkloadActivityProfile(
+            layers=(
+                LayerActivity(
+                    "float_layer",
+                    1000,
+                    1000,
+                    1,
+                    {
+                        "rf_i1": 100,
+                        "rf_i2": 100,
+                        "rf_o": 100,
+                        "gb": 100,
+                    },
+                    {"I": 32, "W": 32, "O": 32},
+                    {
+                        "I": "float32",
+                        "W": "float32",
+                        "O": "float32",
+                    },
+                ),
+            )
+        )
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            problem = Level2PymooProblem(
+                accelerator=accelerator,
+                ip_pool=pool,
+                objective_names=["power"],
+                activity_profile=fp32_profile,
+            )
+
+        runtime_warnings = [
+            warning
+            for warning in caught
+            if issubclass(warning.category, RuntimeWarning)
+        ]
+        self.assertEqual(len(runtime_warnings), 1)
+        self.assertIn(
+            "pe_mac_8b_low_power",
+            str(runtime_warnings[0].message),
+        )
+        self.assertIn(
+            "pe_mac_8b_fast",
+            str(runtime_warnings[0].message),
+        )
+        self.assertIn(
+            "retained by policy",
+            str(runtime_warnings[0].message),
+        )
+
+        out: dict[str, object] = {}
+        problem._evaluate(problem.spec.default_genome(), out)
+        self.assertTrue(
+            all(math.isfinite(value) for value in out["F"])
+        )
+
+    def test_matching_int8_pe_format_does_not_warn(self) -> None:
+        accelerator = abstract_accelerator_from_level1_config(
+            decode_genome([1, 2, 0, 2, 1, 0, 1])
+        )
+        profile = WorkloadActivityProfile(
+            layers=(
+                LayerActivity(
+                    "int8_layer",
+                    1000,
+                    1000,
+                    1,
+                    {},
+                    {"I": 8, "W": 8, "O": 8},
+                    {"I": "int8", "W": "int8", "O": "int8"},
+                ),
+            )
+        )
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            Level2PymooProblem(
+                accelerator=accelerator,
+                ip_pool=IPPool.from_yaml(SYNTHETIC_POOL_PATH),
+                objective_names=["power"],
+                activity_profile=profile,
+            )
+
+        self.assertFalse(
+            any(
+                issubclass(warning.category, RuntimeWarning)
+                for warning in caught
+            )
+        )
 
     def test_preflight_leaves_operating_point_checks_to_each_candidate(self) -> None:
         accelerator = AbstractAccelerator(

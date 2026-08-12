@@ -209,11 +209,25 @@ by the Level 1 MAC proxy.
 
 Memory accesses are normalized from the abstract Level 1 port width to the selected IP width. Every valid combination uses one common characterized `reference_frequency_mhz` and `reference_voltage_v`. Power values are used exactly as characterized, without frequency scaling or interpolation. `physical_fmax_mhz` is the minimum selected-IP `fmax_mhz`; it must meet the reference frequency but never becomes the operating frequency. `physical_critical_delay` and `timing_margin_mhz = physical_fmax_mhz - reference_frequency_mhz` are reported separately.
 
-Level 2 rejects a combination when a selected IP is characterized at an incompatible operating point, misses the reference frequency, cannot provide the mapped PE MACs/cycle, has incompatible operand precision, or cannot sustain the mapped memory accesses/cycle. It preserves the ZigZag cycles rather than inserting stalls or remapping.
+TALOS infers activation, weight and output representations from the
+ONNX tensor types before calling ZigZag. The visible output type is
+also used for the accumulator, so a FLOAT model uses 32-bit operands
+and outputs while an INT8 model uses 8-bit operands and outputs. TALOS
+does not quantize a model or fall back to ZigZag's implicit 8-bit
+defaults. The Level 1 MAC energy remains the configured calibration
+and is not scaled by precision.
+
+Level 2 rejects a combination when a selected IP is characterized at
+an incompatible operating point, misses the reference frequency,
+cannot provide the mapped PE MACs/cycle, or cannot sustain the mapped
+memory accesses/cycle. It preserves the ZigZag cycles rather than
+inserting stalls or remapping.
 
 For each layer, Level 2 also checks that mapped MACs/cycle fit the active PEs'
-`macs_per_cycle`, that PE input precision is compatible, and that normalized
-memory accesses/cycle fit the selected instances and `accesses_per_cycle`.
+`macs_per_cycle` and that normalized memory accesses/cycle fit the
+selected instances and `accesses_per_cycle`. A PE format or precision
+mismatch produces one aggregated warning but does not remove the
+candidate from the exploration.
 Current ZigZag profiles expose aggregate physical accesses per memory level, so
 read/write and operand contention are intentionally checked as one shared rate.
 
@@ -397,10 +411,13 @@ ips:
   # PE, RF, GB and DRAM entries
 ```
 
-The two included pools are:
+The three included pools are:
 
 - `configs/ip_pool_example.yaml`: illustrative values for small examples.
 - `configs/ip_pool_synthetic_65nm.yaml`: synthetic values used by tests and sweeps; they are not foundry characterization.
+- `configs/ip_pool_characterized_65nm.yaml`: post-synthesis TSMC65 PE
+  and memory characterization, plus the calibrated DRAM proxy required
+  by the complete flow.
 
 The synthetic pool contains 2 PE, 4 register-file, 7 global-buffer choices, and one fixed DRAM. It covers every Level 1 genome and produces at most 896 compatible Level 2 combinations for one architecture, so exhaustive selection is normally preferable. Add variants only from a coherent characterization flow rather than inventing extra points for population size.
 Its 65 nm name matches the Level 1 CACTI technology; all pool PPA values remain
@@ -418,6 +435,7 @@ ips:
     fmax_mhz: 900.0
     metadata:
       precision_bits: 8
+      numeric_format: int8
       macs_per_cycle: 1
     power_model:
       source: synthetic
@@ -430,9 +448,11 @@ ips:
       corner: tt
 ```
 
-`metadata.macs_per_cycle` and `metadata.precision_bits` validate the frozen
-mapping. The generic `throughput` field is retained for legacy local-IP
-objectives and is not used as inference throughput.
+`metadata.macs_per_cycle` validates the frozen mapping.
+`precision_bits` and `numeric_format` describe the PE and are compared
+with the inferred ONNX representation. A mismatch is reported but
+remains eligible. The generic `throughput` field is retained for
+legacy local-IP objectives and is not used as inference throughput.
 
 If that PE characterization already includes RF RTL, declare the covered roles
 and reference ordinary RF entries from the same pool:
@@ -447,6 +467,7 @@ ips:
     fmax_mhz: 800.0
     metadata:
       precision_bits: 8
+      numeric_format: int8
       macs_per_cycle: 1
     included_rfs:
       rf_i1: rf_512b_64b
@@ -533,7 +554,8 @@ Workload-aware exploration requires each selected IP to provide:
 - `fmax_mhz`;
 - `p_idle_w` and `p_active_w`;
 - `voltage_v`;
-- `macs_per_cycle` and `precision_bits` for PEs;
+- `macs_per_cycle` for PEs;
+- `precision_bits` and `numeric_format` for PE compatibility warnings;
 - `accesses_per_cycle` for memories;
 - compatible voltage, temperature, and process corner.
 

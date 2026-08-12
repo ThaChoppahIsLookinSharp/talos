@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+from onnx import helper
 from zigzag.hardware.architecture.memory_port import DataDirection
 from zigzag.mapping.data_movement import MemoryAccesses
 
@@ -187,6 +188,8 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
             {"memory_accesses": {"gb": -1}},
             {"operand_precision_bits": []},
             {"operand_precision_bits": {"I": 0}},
+            {"operand_numeric_formats": []},
+            {"operand_numeric_formats": {"I": ""}},
         ):
             with self.subTest(override=override):
                 with self.assertRaises(ValueError):
@@ -207,6 +210,9 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
                 workload="unused.onnx",
                 workdir=tmp,
                 energy_calibration=energy_calibration(),
+            )
+            evaluator._onnx_workload = helper.make_model(
+                helper.make_graph([], "test", [], [])
             )
             with patch(
                 "zigzag.api.get_hardware_performance_zigzag",
@@ -246,7 +252,12 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
             ),
         )
 
-        profile = extract_workload_activity_profile([cme])
+        profile = extract_workload_activity_profile(
+            [cme],
+            operand_numeric_formats_by_layer={
+                7: {"I": "int8", "W": "int8", "O": "int8"},
+            },
+        )
         layer = profile.layers[0]
 
         self.assertEqual(layer.layer_id, "Op7")
@@ -256,6 +267,10 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
         self.assertEqual(
             layer.operand_precision_bits,
             {"I": 8, "W": 8, "O": 16},
+        )
+        self.assertEqual(
+            layer.operand_numeric_formats,
+            {"I": "int8", "W": "int8", "O": "int8"},
         )
         self.assertEqual(
             layer.memory_accesses,

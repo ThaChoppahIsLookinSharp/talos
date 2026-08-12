@@ -52,7 +52,11 @@ def _implemented(
             "pe_array",
             "pe",
             pe_count,
-            {"macs_per_cycle": 1, "precision_bits": 8},
+            {
+                "macs_per_cycle": 1,
+                "precision_bits": 8,
+                "numeric_format": "int8",
+            },
             pe_model,
         ),
         ("rf_i1", "register_file", 1, {"accesses_per_cycle": 1}, memory_model),
@@ -112,7 +116,11 @@ def _composite_implemented() -> ImplementedAccelerator:
                 fmax_mhz=100,
                 included_rfs=rf_ids,
                 included_rf_power_mode="parent_idle_baseline",
-                metadata={"macs_per_cycle": 1, "precision_bits": 8},
+                metadata={
+                    "macs_per_cycle": 1,
+                    "precision_bits": 8,
+                    "numeric_format": "int8",
+                },
                 power_model=_model(10, 14),
             ),
         )
@@ -348,7 +356,7 @@ class WorkloadPowerTests(unittest.TestCase):
         self.assertAlmostEqual(result.energy_j, 3.8e-7)
         self.assertAlmostEqual(result.power_w, 0.95)
 
-    def test_pe_capacity_and_precision_are_validated_per_layer(self) -> None:
+    def test_precision_warns_but_capacity_is_checked(self) -> None:
         implemented = _implemented(_model(0, 1))
         with self.assertRaisesRegex(ValueError, "insufficient_pe_capacity"):
             evaluate_workload_power(
@@ -358,23 +366,28 @@ class WorkloadPowerTests(unittest.TestCase):
                 ),
                 _dram(),
             )
-        with self.assertRaisesRegex(ValueError, "incompatible_precision"):
-            evaluate_workload_power(
-                implemented,
-                WorkloadActivityProfile(
-                    layers=(
-                        LayerActivity(
-                            "layer",
-                            10,
-                            10,
-                            1,
-                            {},
-                            {"I": 16, "W": 8},
-                        ),
-                    )
-                ),
-                _dram(),
-            )
+        result = evaluate_workload_power(
+            implemented,
+            WorkloadActivityProfile(
+                layers=(
+                    LayerActivity(
+                        "layer",
+                        10,
+                        10,
+                        1,
+                        {},
+                        {"I": 32, "W": 32, "O": 32},
+                        {
+                            "I": "float32",
+                            "W": "float32",
+                            "O": "float32",
+                        },
+                    ),
+                )
+            ),
+            _dram(),
+        )
+        self.assertTrue(result.power_w > 0)
 
     def test_memory_capacity_discards_a_workload_with_one_bad_layer(self) -> None:
         implemented = _implemented(_model(0, 0))
