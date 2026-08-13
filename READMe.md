@@ -400,24 +400,22 @@ python examples/objective_sweep.py \
 
 These objective-sweep defaults are calibrated to leave a useful feasible region in the included synthetic pool; they are not silicon design targets. The constraint sweep intentionally uses much tighter values as regression cases. Use `--no-constraints` to compare objectives without area, power, or frequency limits.
 
-### Latest FP16 sweep
+### Latest characterized sweeps
 
-The 2026-08-12 sweep used the first ResNet18 layer and the FP16-only
-65 nm pool. All seven objective cases completed, producing 45600 valid
-rows and 42336 unique physical implementations.
+The FP16 and FP32 sweeps used the first ResNet18 layer. Both completed
+all seven objective cases with 45600 valid rows and 42336 unique
+physical implementations.
 
-| best observed | case | value |
-|---|---|---:|
-| area | `area` | 0.451629 mm2 |
-| average power | `energy_area` | 0.293842 W |
-| inference energy | `energy_area` | 0.0208520 J |
-| throughput | `performance` | 757.93 inferences/s |
+| best observed | FP16 | FP32 |
+|---|---:|---:|
+| area | 0.451629 mm2 | 0.573476 mm2 |
+| average power | 0.293842 W | 0.329406 W |
+| inference energy | 0.0208520 J | 0.0243084 J |
+| throughput | 757.93 inf./s | 757.93 inf./s |
 
-The ONNX workload remains FP32, while both characterized PEs are FP16.
-TALOS retains that mismatch by policy and does not quantize the model,
-so these figures describe an architectural exploration rather than a
-technology-compatible implementation of the workload as-is. See the
-[full sweep report](results/sweep_reports/objective_sweep_fp16_resnet18_first_layer_20260812.md).
+The FP32 run matches the workload representation. The FP16 comparison
+is descriptive because TALOS retained the format mismatch by policy.
+Both full reports are stored under `results/sweep_reports`.
 
 ## IP pool format
 
@@ -430,7 +428,7 @@ ips:
   # PE, RF, GB and DRAM entries
 ```
 
-The four included pools are:
+The five included pools are:
 
 - `configs/ip_pool_example.yaml`: illustrative values for small examples.
 - `configs/ip_pool_synthetic_65nm.yaml`: synthetic values used by tests and sweeps; they are not foundry characterization.
@@ -440,6 +438,9 @@ The four included pools are:
 - `configs/ip_pool_fp16_65nm.yaml`: the two FP16 PEs and the RF and GB
   characterization from the supplied 65 nm pool, plus a synthetic DRAM
   proxy recalibrated from CACTI by the complete flow.
+- `configs/ip_pool_fp32_65nm.yaml`: the three FP32 PEs and all 15
+  memories with valid numeric PPA from the supplied characterization,
+  plus the same recalibrated DRAM proxy.
 
 The synthetic pool contains 2 PE, 4 register-file, 7 global-buffer choices, and one fixed DRAM. It covers every Level 1 genome and produces at most 896 compatible Level 2 combinations for one architecture, so exhaustive selection is normally preferable. Add variants only from a coherent characterization flow rather than inventing extra points for population size.
 Its 65 nm name matches the Level 1 CACTI technology; all pool PPA values remain

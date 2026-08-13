@@ -49,6 +49,7 @@ ips:
       p_idle_w: 0.00242165
       p_active_w: 0.00411552
 
+  # 15.9123 pJ/MAC equals (active - idle) * 31 cycles at 200 MHz.
   - id: pe_dawsonjon_fp32_mac
     type: pe
     area: 0.0134291

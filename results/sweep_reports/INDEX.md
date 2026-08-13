@@ -19,6 +19,8 @@ Copied reports:
   `results/level2_replay_no_constraints_65nm/20260802_193540`
 - `objective_sweep_fp16_resnet18_first_layer_20260812.md` ->
   `results/objective_sweep_fp16_resnet18_first_layer/20260812_082135`
+- `objective_sweep_fp32_resnet18_20260813.md` ->
+  `results/objective_sweep_fp32_resnet18_first_layer/20260813_222734`
 
 ## Runs
 
@@ -44,6 +46,7 @@ Copied reports:
 | objective_sweep_65nm | `results/objective_sweep_65nm/20260730_073716` | 7 | 7 | constrained source run at commit `3b3edfa`; Level 1/ZigZag profiles reused below |
 | level2_replay_no_constraints_65nm | `results/level2_replay_no_constraints_65nm/20260802_193540` | 7 | 7 | exhaustive Level 2 replay, no user constraints, 128 architecture/mapping entries and 42164 valid rows |
 | objective_sweep_fp16_resnet18_first_layer | `results/objective_sweep_fp16_resnet18_first_layer/20260812_082135` | 7 | 7 | FP16-only PE pool, FP32 first ResNet18 layer, no user constraints, 45600 valid rows |
+| objective_sweep_fp32_resnet18_first_layer | `results/objective_sweep_fp32_resnet18_first_layer/20260813_222734` | 7 | 7 | FP32 PEs, FP32 first ResNet18 layer, no user constraints, 45600 valid rows |
 
 ## Commands And Options
 
@@ -332,6 +335,28 @@ Options: paired objective cases, first ResNet18 layer, two FP16 PEs,
 no user constraints, large Level 1 and exhaustive Level 2. The workload
 is FP32 and the format mismatch is retained by policy.
 
+`results/objective_sweep_fp32_resnet18_first_layer/20260813_222734`
+
+```bash
+run_base=results/objective_sweep_fp32_resnet18_first_layer
+.venv/bin/python -u examples/objective_sweep.py \
+  --workload workloads/resnet18_first_layer.onnx \
+  --ip-pool configs/ip_pool_fp32_65nm.yaml \
+  --results-dir "$run_base" \
+  --level1-pop-size 80 \
+  --level1-generations 8 \
+  --workers 16 \
+  --level2-strategy exhaustive \
+  --level2-exhaustive-max-combinations 100000 \
+  --max-architectures 12 \
+  --no-constraints \
+  --seed 1
+```
+
+Options: paired objective cases, first ResNet18 layer, three FP32 PEs,
+all 15 memories with valid PPA, no user constraints, large Level 1 and
+exhaustive Level 2. Workload and PEs both use `float32/32`.
+
 ## Latest Useful Reports
 
 - `results/sweep_reports/constraint_sweep_20260702_092220.md`
@@ -341,5 +366,6 @@ is FP32 and the format mismatch is retained by policy.
 - `results/sweep_reports/objective_sweep_workload_power_dram_20260719.md`
 - `results/sweep_reports/level2_no_constraints_replay_20260802.md`
 - `results/sweep_reports/objective_sweep_fp16_resnet18_first_layer_20260812.md`
+- `results/sweep_reports/objective_sweep_fp32_resnet18_20260813.md`
 - `results/objective_sweep_paired/no_constraints_exhaustive_big_l1/20260705_232223/CONCLUSIONS.md`
 - `results/objective_sweep_paired/no_constraints_exhaustive_big_l1/20260705_232223/POWER_OBJECTIVE_DIAGNOSTIC.md`
