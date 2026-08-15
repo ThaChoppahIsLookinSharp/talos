@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import io
 import logging
 from math import isfinite, prod
+import multiprocessing as mp
 import os
 from pathlib import Path
 import pickle
@@ -328,6 +329,28 @@ class ZigZagEvaluator:
                 error_message=str(exc),
                 mapping_objective=self.opt,
             )
+
+    def evaluate_many(
+        self,
+        genomes: Iterable[list[float]],
+        n_workers: int = 1,
+    ) -> list[EvaluationResult]:
+        rows = list(genomes)
+        if n_workers < 1:
+            raise ValueError("n_workers must be at least 1.")
+        if n_workers == 1 or len(rows) < 2:
+            return [self.evaluate(genome) for genome in rows]
+
+        worker_evaluator = copy.copy(self)
+        worker_evaluator._onnx_workload = None
+        worker_evaluator._operand_numeric_formats_by_layer = {}
+        ctx = mp.get_context("spawn")
+        with ctx.Pool(
+            processes=min(n_workers, len(rows)),
+            initializer=_initialize_zigzag_worker,
+            initargs=(worker_evaluator,),
+        ) as pool:
+            return pool.map(_evaluate_zigzag_worker, rows)
 
     def _write_mapping_yaml(self, mapping: list[dict[str, Any]]) -> str:
         mapping_path = self.workdir / "mapping.yaml"
@@ -667,3 +690,27 @@ class ZigZagEvaluator:
         gb_area = gb_count * cfg.gb_size_bits * 0.0005
 
         return float(mac_area + rf_area + gb_area)
+
+
+_ZIGZAG_WORKER: ZigZagEvaluator | None = None
+
+
+def _initialize_zigzag_worker(
+    evaluator: ZigZagEvaluator,
+) -> None:
+    global _ZIGZAG_WORKER
+    evaluator.workdir /= f"worker_{os.getpid()}"
+    evaluator.workdir.mkdir(parents=True, exist_ok=True)
+    evaluator.mapping_yaml_path = evaluator._write_mapping_yaml(
+        evaluator.mapping
+    )
+    evaluator._evaluation_counter = 0
+    _ZIGZAG_WORKER = evaluator
+
+
+def _evaluate_zigzag_worker(
+    genome: list[float],
+) -> EvaluationResult:
+    if _ZIGZAG_WORKER is None:
+        raise RuntimeError("ZigZag worker was not initialized.")
+    return _ZIGZAG_WORKER.evaluate(genome)

@@ -356,6 +356,15 @@ def main() -> int:
         return 0
 
     flow_failures: list[str] = []
+    activity_workers = min(
+        args.workers,
+        args.max_architectures,
+    )
+    print(
+        "[Level 1] Profiling up to "
+        f"{args.max_architectures} architecture(s) with "
+        f"{activity_workers} ZigZag worker(s)."
+    )
     candidates = select_level1_candidates(
         level1_genomes=level1_genomes,
         level1_objectives=level1_objectives,
@@ -369,6 +378,12 @@ def main() -> int:
         ),
         constraints=constraints,
         evaluate_activity=activity_evaluator.evaluate,
+        evaluate_activities=lambda genomes: (
+            activity_evaluator.evaluate_many(
+                genomes,
+                n_workers=args.workers,
+            )
+        ),
         exhaustive_max_combinations=args.level2_exhaustive_max_combinations,
         failures=flow_failures,
     )
@@ -473,10 +488,12 @@ def select_level1_candidates(
     abstract_accelerator_from_level1_config: Any,
     constraints: UserConstraints | None = None,
     evaluate_activity: Any | None = None,
+    evaluate_activities: Any | None = None,
     exhaustive_max_combinations: int = 100_000,
     failures: list[str] | None = None,
 ) -> list[Level1Candidate]:
     candidates: list[Level1Candidate] = []
+    preliminary: list[Level1Candidate] = []
     seen_discrete_genomes: set[tuple[int, ...]] = set()
     bounds = gene_bounds()
 
@@ -486,8 +503,6 @@ def select_level1_candidates(
     )
     for source_index in candidate_order:
         genome = level1_genomes[source_index]
-        if len(candidates) >= max_architectures:
-            break
         discrete_genome = discretize_genome(genome, bounds)
         discrete_key = tuple(discrete_genome)
         if discrete_key in seen_discrete_genomes:
@@ -528,65 +543,8 @@ def select_level1_candidates(
             )
             continue
 
-        activity_result = None
-        activity_profile = None
-        if evaluate_activity is not None:
-            activity_result = evaluate_activity(genome)
-            if not activity_result.valid or activity_result.activity_profile is None:
-                print(
-                    f"[Level 1] Skipping architecture {source_index}: "
-                    f"{activity_result.error_message or 'activity profile is unavailable'}"
-                )
-                if failures is not None:
-                    failures.append(
-                        activity_result.error_message
-                        or "activity profile is unavailable"
-                    )
-                continue
-            activity_profile = activity_result.activity_profile
-
-        if constraints is not None and constraints.level2_constraint_count:
-            try:
-                from talos.level2.genome import Level2GenomeSpec
-                from talos.level2.exhaustive_runner import run_level2_exhaustive
-
-                combination_count = Level2GenomeSpec.from_accelerator_and_pool(
-                    accelerator,
-                    pool,
-                ).genome_count()
-                physical_result = (
-                    None
-                    if combination_count > exhaustive_max_combinations
-                    else run_level2_exhaustive(
-                        accelerator=accelerator,
-                        ip_pool=pool,
-                        objective_names=["area"],
-                        constraints=constraints,
-                        activity_profile=activity_profile,
-                        max_combinations=exhaustive_max_combinations,
-                        save_csv=False,
-                    )
-                )
-            except Exception as exc:
-                print(f"[Level 1] Skipping architecture {source_index}: {exc}")
-                if failures is not None:
-                    failures.append(str(exc))
-                continue
-            if physical_result is None:
-                print(
-                    f"[Level 1] Physical prefilter skipped for architecture "
-                    f"{source_index}: {combination_count} combinations exceed "
-                    f"the {exhaustive_max_combinations} limit"
-                )
-            elif not physical_result.solutions:
-                print(
-                    f"[Level 1] Skipping architecture {source_index}: "
-                    "no Level 2 combination satisfies the physical constraints"
-                )
-                continue
-
         seen_discrete_genomes.add(discrete_key)
-        candidates.append(
+        preliminary.append(
             Level1Candidate(
                 source_index=source_index,
                 raw_genome=genome,
@@ -594,12 +552,151 @@ def select_level1_candidates(
                 discrete_genome=discrete_genome,
                 architecture_config=config,
                 accelerator=accelerator,
-                activity_profile=activity_profile,
-                evaluation=activity_result,
             )
         )
 
+    offset = 0
+    while len(candidates) < max_architectures:
+        batch_size = max_architectures - len(candidates)
+        batch = preliminary[offset:offset + batch_size]
+        if not batch:
+            break
+        offset += len(batch)
+        if evaluate_activities is not None:
+            activity_results = evaluate_activities(
+                [candidate.raw_genome for candidate in batch]
+            )
+        elif evaluate_activity is not None:
+            activity_results = [
+                evaluate_activity(candidate.raw_genome)
+                for candidate in batch
+            ]
+        else:
+            activity_results = [None] * len(batch)
+
+        if len(activity_results) != len(batch):
+            raise ValueError(
+                "Activity evaluator returned an unexpected "
+                "result count."
+            )
+
+        for candidate, activity_result in zip(
+            batch,
+            activity_results,
+            strict=True,
+        ):
+            activity_profile = None
+            if activity_result is not None:
+                activity_profile = activity_result.activity_profile
+                if (
+                    not activity_result.valid
+                    or activity_profile is None
+                ):
+                    message = (
+                        activity_result.error_message
+                        or "activity profile is unavailable"
+                    )
+                    print(
+                        "[Level 1] Skipping architecture "
+                        f"{candidate.source_index}: {message}"
+                    )
+                    if failures is not None:
+                        failures.append(message)
+                    continue
+
+            if (
+                constraints is not None
+                and constraints.level2_constraint_count
+                and not _passes_physical_prefilter(
+                    candidate=candidate,
+                    pool=pool,
+                    constraints=constraints,
+                    activity_profile=activity_profile,
+                    exhaustive_max_combinations=(
+                        exhaustive_max_combinations
+                    ),
+                    failures=failures,
+                )
+            ):
+                continue
+
+            candidates.append(
+                Level1Candidate(
+                    source_index=candidate.source_index,
+                    raw_genome=candidate.raw_genome,
+                    objective_values=candidate.objective_values,
+                    discrete_genome=candidate.discrete_genome,
+                    architecture_config=(
+                        candidate.architecture_config
+                    ),
+                    accelerator=candidate.accelerator,
+                    activity_profile=activity_profile,
+                    evaluation=activity_result,
+                )
+            )
+
     return candidates
+
+
+def _passes_physical_prefilter(
+    *,
+    candidate: Level1Candidate,
+    pool: Any,
+    constraints: UserConstraints,
+    activity_profile: WorkloadActivityProfile | None,
+    exhaustive_max_combinations: int,
+    failures: list[str] | None,
+) -> bool:
+    source_index = candidate.source_index
+    try:
+        from talos.level2.genome import Level2GenomeSpec
+        from talos.level2.exhaustive_runner import (
+            run_level2_exhaustive,
+        )
+
+        combination_count = (
+            Level2GenomeSpec.from_accelerator_and_pool(
+                candidate.accelerator,
+                pool,
+            ).genome_count()
+        )
+        physical_result = (
+            None
+            if combination_count > exhaustive_max_combinations
+            else run_level2_exhaustive(
+                accelerator=candidate.accelerator,
+                ip_pool=pool,
+                objective_names=["area"],
+                constraints=constraints,
+                activity_profile=activity_profile,
+                max_combinations=exhaustive_max_combinations,
+                save_csv=False,
+            )
+        )
+    except Exception as exc:
+        print(
+            f"[Level 1] Skipping architecture "
+            f"{source_index}: {exc}"
+        )
+        if failures is not None:
+            failures.append(str(exc))
+        return False
+    if physical_result is None:
+        print(
+            f"[Level 1] Physical prefilter skipped for architecture "
+            f"{source_index}: {combination_count} combinations "
+            "exceed "
+            f"the {exhaustive_max_combinations} limit"
+        )
+        return True
+    if not physical_result.solutions:
+        print(
+            f"[Level 1] Skipping architecture {source_index}: "
+            "no Level 2 combination satisfies the physical "
+            "constraints"
+        )
+        return False
+    return True
 
 
 def _level1_candidate_order(

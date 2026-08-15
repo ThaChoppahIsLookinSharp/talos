@@ -5,7 +5,7 @@ import pickle
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from onnx import helper
 from zigzag.hardware.architecture.memory_port import DataDirection
@@ -28,6 +28,7 @@ from talos.evaluation.workload_activity import (
     extract_workload_activity_profile,
 )
 from talos.evaluation.zigzag_evaluator import (
+    EvaluationResult,
     ZigZagEvaluator,
     mapping_objective_for_level1,
 )
@@ -99,6 +100,42 @@ def _accesses(
 
 
 class WorkloadActivityAdapterTests(unittest.TestCase):
+    def test_zigzag_evaluates_candidate_batch_with_spawn_workers(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evaluator = ZigZagEvaluator(
+                workload="unused.onnx",
+                workdir=tmp,
+                energy_calibration=energy_calibration(),
+            )
+            expected = [
+                EvaluationResult(1, 2, 3, True),
+                EvaluationResult(4, 5, 6, True),
+            ]
+            pool = MagicMock()
+            pool.__enter__.return_value = pool
+            pool.map.return_value = expected
+            context = MagicMock()
+            context.Pool.return_value = pool
+
+            with patch(
+                "talos.evaluation.zigzag_evaluator.mp.get_context",
+                return_value=context,
+            ) as get_context:
+                results = evaluator.evaluate_many(
+                    [default_genome(), default_genome()],
+                    n_workers=8,
+                )
+
+        self.assertEqual(results, expected)
+        get_context.assert_called_once_with("spawn")
+        self.assertEqual(
+            context.Pool.call_args.kwargs["processes"],
+            2,
+        )
+        pool.map.assert_called_once()
+
     def test_workload_performance_uses_mapping_cycles_and_reference_frequency(self) -> None:
         profile = WorkloadActivityProfile(
             layers=(
