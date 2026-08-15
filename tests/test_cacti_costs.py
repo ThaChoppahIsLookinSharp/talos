@@ -12,6 +12,8 @@ from unittest.mock import patch
 from talos.architecture.genome import (
     GB_BW_OPTIONS,
     GB_SIZE_OPTIONS,
+    RF_BW_OPTIONS,
+    RF_SIZE_OPTIONS,
     default_genome,
     decode_genome,
 )
@@ -47,9 +49,21 @@ def calibration() -> Level1EnergyCalibration:
                 bandwidth_bits=bandwidth,
                 read_energy_pj_per_access=size / 8192 + bandwidth / 64,
                 write_energy_pj_per_access=size / 4096 + bandwidth / 32,
+                standby_power_w=0.002,
             )
             for size in GB_SIZE_OPTIONS
             for bandwidth in GB_BW_OPTIONS
+        ),
+        rf_costs=tuple(
+            CactiMemoryCost(
+                size,
+                bandwidth,
+                1,
+                1,
+                standby_power_w=0.001,
+            )
+            for size in RF_SIZE_OPTIONS
+            for bandwidth in RF_BW_OPTIONS
         ),
     )
 
@@ -71,30 +85,36 @@ class CactiParserTests(unittest.TestCase):
     def test_parser_ignores_secondary_na_and_converts_nj_to_pj(self) -> None:
         source = io.StringIO(
             "Capacity (bytes), Output width (bits), Dynamic search energy (nJ),"
-            " Dynamic read energy (nJ), Dynamic write energy (nJ)\n"
-            "1024,64,N/A,0.0125,0.025\n"
+            " Dynamic read energy (nJ), Dynamic write energy (nJ),"
+            " Standby leakage per bank(mW)\n"
+            "1024,64,N/A,0.0125,0.025,2.5\n"
         )
 
-        read, write = parse_cacti_output(
+        read, write, standby = parse_cacti_output(
             source,
             expected_capacity_bytes=1024,
             expected_bandwidth_bits=64,
         )
 
-        self.assertEqual((read, write), (12.5, 25))
+        self.assertEqual((read, write, standby), (12.5, 25, 0.0025))
 
     def test_parser_rejects_mismatch_ambiguity_and_invalid_energy(self) -> None:
         header = (
             "Capacity (bytes),Output width (bits),"
-            "Dynamic read energy (nJ),Dynamic write energy (nJ)\n"
+            "Dynamic read energy (nJ),Dynamic write energy (nJ),"
+            "Standby leakage per bank(mW)\n"
         )
         for body, message in (
-            ("2048,64,1,1\n", "capacity mismatch"),
-            ("1024,128,1,1\n", "bandwidth mismatch"),
-            ("1024,64,1,1\n1024,64,2,2\n", "exactly one"),
-            ("1024,64,N/A,1\n", "invalid required"),
-            ("1024,64,nan,1\n", "finite and positive"),
-            ("1024,64,0,1\n", "finite and positive"),
+            ("2048,64,1,1,1\n", "capacity mismatch"),
+            ("1024,128,1,1,1\n", "bandwidth mismatch"),
+            (
+                "1024,64,1,1,1\n1024,64,2,2,2\n",
+                "exactly one",
+            ),
+            ("1024,64,N/A,1,1\n", "invalid required"),
+            ("1024,64,nan,1,1\n", "finite and positive"),
+            ("1024,64,0,1,1\n", "finite and positive"),
+            ("1024,64,1,1,nan\n", "finite and non-negative"),
         ):
             with self.subTest(body=body):
                 with self.assertRaisesRegex(ValueError, message):
@@ -123,7 +143,7 @@ class CactiParserTests(unittest.TestCase):
 
 
 class EnergyCalibrationTests(unittest.TestCase):
-    def test_characterizes_25_gbs_and_one_reference_once(self) -> None:
+    def test_characterizes_memory_catalog(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             master = Path(temporary) / "cacti_master"
             master.mkdir()
@@ -144,6 +164,7 @@ class EnergyCalibrationTests(unittest.TestCase):
                     bandwidth_bits,
                     energy,
                     energy + 12,
+                    standby_power_w=0.001,
                 )
 
             with (
@@ -159,9 +180,10 @@ class EnergyCalibrationTests(unittest.TestCase):
                 result = characterize_level1_energy(master, technology_nm=40)
 
         self.assertEqual(copytree.call_count, 1)
-        self.assertEqual(characterize.call_count, 26)
+        self.assertEqual(characterize.call_count, 62)
         self.assertEqual(result.technology_nm, 40)
         self.assertEqual(len(result.gb_costs), 25)
+        self.assertEqual(len(result.rf_costs), 36)
         self.assertEqual(
             {
                 (cost.capacity_bits, cost.bandwidth_bits)
@@ -171,6 +193,17 @@ class EnergyCalibrationTests(unittest.TestCase):
                 (size, bandwidth)
                 for size in GB_SIZE_OPTIONS
                 for bandwidth in GB_BW_OPTIONS
+            },
+        )
+        self.assertEqual(
+            {
+                (cost.capacity_bits, cost.bandwidth_bits)
+                for cost in result.rf_costs
+            },
+            {
+                (size, bandwidth)
+                for size in RF_SIZE_OPTIONS
+                for bandwidth in RF_BW_OPTIONS
             },
         )
         reference_call = characterize.call_args_list[-1].kwargs
@@ -436,6 +469,7 @@ class RealCactiSmokeTests(unittest.TestCase):
         result = characterize_level1_energy(source)
 
         self.assertEqual(len(result.gb_costs), 25)
+        self.assertEqual(len(result.rf_costs), 36)
         self.assertEqual(
             result.gb_cost(8192, 512).cacti_capacity_bits,
             16384,
@@ -453,6 +487,10 @@ class RealCactiSmokeTests(unittest.TestCase):
             self.assertGreater(cost.write_energy_pj_per_access, 0)
             self.assertTrue(math.isfinite(cost.read_energy_pj_per_access))
             self.assertTrue(math.isfinite(cost.write_energy_pj_per_access))
+            self.assertGreater(cost.standby_power_w, 0)
+        for cost in result.rf_costs:
+            self.assertGreater(cost.standby_power_w, 0)
+            self.assertTrue(math.isfinite(cost.standby_power_w))
         self.assertGreater(result.reference_gb_read_energy_pj, 0)
         self.assertGreater(result.reference_gb_write_energy_pj, 0)
 

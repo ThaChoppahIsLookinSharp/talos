@@ -291,7 +291,17 @@ class ZigZagEvaluator:
                 with self._quiet_zigzag():
                     energy, latency, cme = self._run_zigzag(accelerator_yaml_path)
 
+            activity_profile = extract_workload_activity_profile(
+                cme,
+                operand_numeric_formats_by_layer=(
+                    self._operand_numeric_formats_by_layer
+                ),
+            )
             energy += self._dram_idle_energy_pj(latency)
+            energy += self._onchip_idle_energy_pj(
+                cfg,
+                activity_profile,
+            )
             area = self._extract_area(cme, cfg)
 
             return EvaluationResult(
@@ -299,12 +309,7 @@ class ZigZagEvaluator:
                 energy=float(energy),
                 area=float(area),
                 valid=True,
-                activity_profile=extract_workload_activity_profile(
-                    cme,
-                    operand_numeric_formats_by_layer=(
-                        self._operand_numeric_formats_by_layer
-                    ),
-                ),
+                activity_profile=activity_profile,
                 mapping_objective=self.opt,
             )
 
@@ -543,6 +548,50 @@ class ZigZagEvaluator:
             model.reference_frequency_mhz * 1_000_000.0
         )
         return model.p_idle_w * latency_s * 1e12
+
+    def _onchip_idle_energy_pj(
+        self,
+        cfg: ArchitectureConfig,
+        profile: WorkloadActivityProfile,
+    ) -> float:
+        pe_count = cfg.pe_x * cfg.pe_y
+        idle_pe_cycles = sum(
+            max(
+                0.0,
+                pe_count * layer.latency_cycles - layer.mac_count,
+            )
+            for layer in profile.layers
+        )
+        pe_idle_energy = (
+            idle_pe_cycles
+            * self.energy_calibration.pe_idle_energy_pj_per_cycle
+        )
+
+        rf = self.energy_calibration.rf_cost(
+            cfg.rf_size_bits,
+            cfg.rf_bw_bits,
+        )
+        gb = self.energy_calibration.gb_cost(
+            cfg.gb_size_bits,
+            cfg.gb_bw_bits,
+        )
+        gb_count = prod(
+            size
+            for dimension, size in (
+                ("D1", cfg.pe_x),
+                ("D2", cfg.pe_y),
+            )
+            if dimension not in cfg.gb_served_dims
+        )
+        standby_power_w = (
+            3 * pe_count * rf.standby_power_w
+            + gb_count * gb.standby_power_w
+        )
+        frequency_hz = (
+            self.dram_power_model.reference_frequency_mhz * 1_000_000.0
+        )
+        latency_s = profile.total_latency_cycles / frequency_hz
+        return pe_idle_energy + standby_power_w * latency_s * 1e12
 
     def _default_mapping(self) -> list[dict[str, Any]]:
         return [

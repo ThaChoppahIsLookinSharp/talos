@@ -14,6 +14,8 @@ from zigzag.mapping.data_movement import MemoryAccesses
 from talos.architecture.genome import (
     GB_BW_OPTIONS,
     GB_SIZE_OPTIONS,
+    RF_BW_OPTIONS,
+    RF_SIZE_OPTIONS,
     ArchitectureConfig,
     default_genome,
     decode_genome,
@@ -41,9 +43,26 @@ def energy_calibration() -> Level1EnergyCalibration:
         reference_gb_write_energy_pj=14,
         mac_energy_pj=2,
         gb_costs=tuple(
-            CactiMemoryCost(size, bandwidth, 3, 4)
+            CactiMemoryCost(
+                size,
+                bandwidth,
+                3,
+                4,
+                standby_power_w=0.002,
+            )
             for size in GB_SIZE_OPTIONS
             for bandwidth in GB_BW_OPTIONS
+        ),
+        rf_costs=tuple(
+            CactiMemoryCost(
+                size,
+                bandwidth,
+                1,
+                1,
+                standby_power_w=0.001,
+            )
+            for size in RF_SIZE_OPTIONS
+            for bandwidth in RF_BW_OPTIONS
         ),
     )
 
@@ -169,6 +188,39 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
                     area,
                     32 + 3 * 32 * 64 * 0.001 + gb_count * 8192 * 0.0005,
                 )
+
+    def test_onchip_idle_formula(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evaluator = ZigZagEvaluator(
+                workload="unused.onnx",
+                workdir=tmp,
+                energy_calibration=energy_calibration(),
+            )
+            config = ArchitectureConfig(
+                pe_x=4,
+                pe_y=8,
+                rf_size_bits=64,
+                rf_bw_bits=8,
+                gb_size_bits=8192,
+                gb_bw_bits=64,
+                gb_served_dims=["D1", "D2"],
+                dram_bw_bits=512,
+            )
+            profile = WorkloadActivityProfile(
+                layers=(
+                    LayerActivity("conv", 10, 100, 16, {}),
+                )
+            )
+
+            idle_energy = evaluator._onchip_idle_energy_pj(
+                config,
+                profile,
+            )
+
+        # PE: (32 * 10 - 100) * 0.1 * 2 pJ = 44 pJ.
+        # Memories: (96 * 1 mW + 1 * 2 mW) for 10 cycles
+        # at 500 MHz = 1960 pJ.
+        self.assertAlmostEqual(idle_energy, 2004)
 
     def test_layer_activity_validates_values(self) -> None:
         values = {
