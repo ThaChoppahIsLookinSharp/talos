@@ -390,6 +390,40 @@ class UserConstraintsTests(unittest.TestCase):
             [[0, 0, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0, 0]],
         )
 
+    def test_level1_selection_keeps_pareto_extremes_and_diversity(
+        self,
+    ) -> None:
+        candidates = select_level1_candidates(
+            level1_genomes=[
+                [0, 0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0, 0],
+                [2, 0, 0, 0, 0, 0, 0],
+                [3, 0, 0, 0, 0, 0, 0],
+            ],
+            level1_objectives=[
+                [1.0, 10.0],
+                [10.0, 1.0],
+                [5.0, 5.0],
+                [9.0, 9.0],
+            ],
+            level1_objective_names=["energy", "area"],
+            max_architectures=3,
+            pool=IPPool.from_yaml(SYNTHETIC_POOL_PATH),
+            decode_genome=decode_genome,
+            gene_bounds=lambda: [
+                (0, len(spec.options) - 1)
+                for spec in GENOME_SPEC
+            ],
+            abstract_accelerator_from_level1_config=(
+                abstract_accelerator_from_level1_config
+            ),
+        )
+
+        self.assertEqual(
+            [candidate.source_index for candidate in candidates],
+            [0, 1, 2],
+        )
+
     def test_level2_solution_rows_are_deduplicated_by_selected_ips(self) -> None:
         component = AbstractComponent(name="pe", type="pe")
         problem = Level2PymooProblem(

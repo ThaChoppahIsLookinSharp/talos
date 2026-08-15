@@ -413,8 +413,9 @@ class ZigZagEvaluator:
 
     def _build_accelerator(self, cfg: ArchitectureConfig) -> dict[str, Any]:
         dram_energy_pj_per_access = self._dram_dynamic_energy_pj_per_access()
-        rf_energy_pj_per_access = (
-            self.energy_calibration.rf_energy_pj_per_access(cfg.rf_bw_bits)
+        rf_cost = self.energy_calibration.rf_cost(
+            cfg.rf_size_bits,
+            cfg.rf_bw_bits,
         )
         gb_cost = self.energy_calibration.gb_cost(
             cfg.gb_size_bits,
@@ -435,8 +436,8 @@ class ZigZagEvaluator:
             "memories": {
                 "rf_i1": {
                     "size": cfg.rf_size_bits,
-                    "r_cost": rf_energy_pj_per_access,
-                    "w_cost": rf_energy_pj_per_access,
+                    "r_cost": rf_cost.read_energy_pj_per_access,
+                    "w_cost": rf_cost.write_energy_pj_per_access,
                     "area": 1.0,
                     "latency": 1,
                     "mem_type": "sram",
@@ -453,8 +454,8 @@ class ZigZagEvaluator:
                 },
                 "rf_i2": {
                     "size": cfg.rf_size_bits,
-                    "r_cost": rf_energy_pj_per_access,
-                    "w_cost": rf_energy_pj_per_access,
+                    "r_cost": rf_cost.read_energy_pj_per_access,
+                    "w_cost": rf_cost.write_energy_pj_per_access,
                     "area": 1.0,
                     "latency": 1,
                     "mem_type": "sram",
@@ -471,8 +472,8 @@ class ZigZagEvaluator:
                 },
                 "rf_o": {
                     "size": cfg.rf_size_bits,
-                    "r_cost": rf_energy_pj_per_access,
-                    "w_cost": rf_energy_pj_per_access,
+                    "r_cost": rf_cost.read_energy_pj_per_access,
+                    "w_cost": rf_cost.write_energy_pj_per_access,
                     "area": 1.0,
                     "latency": 1,
                     "mem_type": "sram",
@@ -591,7 +592,23 @@ class ZigZagEvaluator:
             self.dram_power_model.reference_frequency_mhz * 1_000_000.0
         )
         latency_s = profile.total_latency_cycles / frequency_hz
-        return pe_idle_energy + standby_power_w * latency_s * 1e12
+        leakage_energy_pj = standby_power_w * latency_s * 1e12
+        memory_idle = (
+            self.energy_calibration
+            .memory_clock_idle_energy_pj_per_cycle
+        )
+        clock_idle_energy_pj = profile.total_latency_cycles * (
+            3
+            * pe_count
+            * memory_idle(rf)
+            + gb_count
+            * memory_idle(gb)
+        )
+        return (
+            pe_idle_energy
+            + leakage_energy_pj
+            + clock_idle_energy_pj
+        )
 
     def _default_mapping(self) -> list[dict[str, Any]]:
         return [

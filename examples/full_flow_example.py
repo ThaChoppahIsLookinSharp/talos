@@ -480,7 +480,12 @@ def select_level1_candidates(
     seen_discrete_genomes: set[tuple[int, ...]] = set()
     bounds = gene_bounds()
 
-    for source_index, genome in enumerate(level1_genomes):
+    candidate_order = _level1_candidate_order(
+        level1_objectives,
+        len(level1_genomes),
+    )
+    for source_index in candidate_order:
+        genome = level1_genomes[source_index]
         if len(candidates) >= max_architectures:
             break
         discrete_genome = discretize_genome(genome, bounds)
@@ -595,6 +600,59 @@ def select_level1_candidates(
         )
 
     return candidates
+
+
+def _level1_candidate_order(
+    objective_values: list[list[float]],
+    candidate_count: int,
+) -> list[int]:
+    import numpy as np
+    from pymoo.operators.survival.rank_and_crowding.metrics import (
+        calc_crowding_distance,
+    )
+    from pymoo.util.nds.non_dominated_sorting import (
+        NonDominatedSorting,
+    )
+
+    objective_row_count = min(candidate_count, len(objective_values))
+    finite = [
+        index
+        for index in range(objective_row_count)
+        if objective_values[index]
+        and np.isfinite(objective_values[index]).all()
+    ]
+    invalid = [
+        index
+        for index in range(candidate_count)
+        if index not in finite
+    ]
+    if not finite:
+        return invalid
+    values = np.asarray(
+        [objective_values[index] for index in finite],
+        dtype=float,
+    )
+    if values.shape[1] == 1:
+        return sorted(
+            finite,
+            key=lambda index: (objective_values[index][0], index),
+        ) + invalid
+
+    ordered: list[int] = []
+    for front in NonDominatedSorting().do(values):
+        crowding = calc_crowding_distance(values[front])
+        ordered.extend(
+            finite[front[position]]
+            for position in sorted(
+                range(len(front)),
+                key=lambda position: (
+                    -crowding[position],
+                    values[front[position]].sum(),
+                    finite[front[position]],
+                ),
+            )
+        )
+    return ordered + invalid
 
 
 def first_constraint_feasibility_error(

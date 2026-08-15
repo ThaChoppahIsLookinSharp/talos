@@ -58,8 +58,8 @@ def calibration() -> Level1EnergyCalibration:
             CactiMemoryCost(
                 size,
                 bandwidth,
-                1,
-                1,
+                size / 64 + bandwidth / 8,
+                size / 32 + bandwidth / 4,
                 standby_power_w=0.001,
             )
             for size in RF_SIZE_OPTIONS
@@ -416,10 +416,19 @@ class Level1EnergyIntegrationTests(unittest.TestCase):
             accelerator["operational_array"]["unit_energy"],
             result.mac_energy_pj,
         )
-        expected_rf = result.rf_energy_pj_per_access(config.rf_bw_bits)
+        expected_rf = result.rf_cost(
+            config.rf_size_bits,
+            config.rf_bw_bits,
+        )
         for name in ("rf_i1", "rf_i2", "rf_o"):
-            self.assertEqual(accelerator["memories"][name]["r_cost"], expected_rf)
-            self.assertEqual(accelerator["memories"][name]["w_cost"], expected_rf)
+            self.assertEqual(
+                accelerator["memories"][name]["r_cost"],
+                expected_rf.read_energy_pj_per_access,
+            )
+            self.assertEqual(
+                accelerator["memories"][name]["w_cost"],
+                expected_rf.write_energy_pj_per_access,
+            )
         gb = accelerator["memories"]["gb"]
         expected_gb = result.gb_cost(config.gb_size_bits, config.gb_bw_bits)
         self.assertEqual(gb["r_cost"], expected_gb.read_energy_pj_per_access)

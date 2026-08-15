@@ -218,9 +218,11 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
             )
 
         # PE: (32 * 10 - 100) * 0.1 * 2 pJ = 44 pJ.
-        # Memories: (96 * 1 mW + 1 * 2 mW) for 10 cycles
-        # at 500 MHz = 1960 pJ.
-        self.assertAlmostEqual(idle_energy, 2004)
+        # Leakage: (96 * 1 mW + 1 * 2 mW) for 10 cycles
+        # at 500 MHz = 1960 pJ. Abstract clock-idle adds
+        # 96 * 10 * 0.1 * 1 pJ * 8 words = 768 pJ for RFs,
+        # and 10 * 0.1 * 3.5 pJ * 128 words = 448 pJ for GB.
+        self.assertAlmostEqual(idle_energy, 3220)
 
     def test_layer_activity_validates_values(self) -> None:
         values = {

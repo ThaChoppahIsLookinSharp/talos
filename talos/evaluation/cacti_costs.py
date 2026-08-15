@@ -33,6 +33,7 @@ CACTI_MIN_CAPACITY_BITS = 64 * 8
 DEFAULT_DRAM_ACCESSES_PER_CYCLE = 1.0
 DEFAULT_PLATFORM_DRAM_IDLE_POWER_W = 0.02
 DEFAULT_PE_IDLE_TO_MAC_RATIO = 0.1
+DEFAULT_MEMORY_CLOCK_IDLE_TO_ACCESS_RATIO = 0.1
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,17 @@ class CactiMemoryCost:
     write_energy_pj_per_access: float
     standby_power_w: float = 0.0
     cacti_capacity_bits: int | None = None
+
+    @property
+    def physical_capacity_bits(self) -> int:
+        return self.cacti_capacity_bits or self.capacity_bits
+
+    @property
+    def average_access_energy_pj(self) -> float:
+        return (
+            self.read_energy_pj_per_access
+            + self.write_energy_pj_per_access
+        ) / 2
 
 
 @dataclass(frozen=True)
@@ -56,6 +68,9 @@ class Level1EnergyCalibration:
     gb_costs: tuple[CactiMemoryCost, ...]
     rf_costs: tuple[CactiMemoryCost, ...] = ()
     pe_idle_to_mac_ratio: float = DEFAULT_PE_IDLE_TO_MAC_RATIO
+    memory_clock_idle_to_access_ratio: float = (
+        DEFAULT_MEMORY_CLOCK_IDLE_TO_ACCESS_RATIO
+    )
 
     @property
     def pe_idle_energy_pj_per_cycle(self) -> float:
@@ -77,6 +92,17 @@ class Level1EnergyCalibration:
             self.dram_energy_pj_per_16b,
             bandwidth_bits,
             "DRAM",
+        )
+
+    def memory_clock_idle_energy_pj_per_cycle(
+        self,
+        cost: CactiMemoryCost,
+    ) -> float:
+        words = cost.physical_capacity_bits / cost.bandwidth_bits
+        return (
+            self.memory_clock_idle_to_access_ratio
+            * cost.average_access_energy_pj
+            * words
         )
 
     def gb_cost(
@@ -118,13 +144,23 @@ class Level1EnergyCalibration:
         dram_bus_width_bits: int,
         dram_power_model: PowerCharacterization,
     ) -> dict[str, Any]:
-        overrides = [
+        gb_overrides = [
             {
                 "logical_capacity_bytes": cost.capacity_bits // 8,
                 "bandwidth_bits": cost.bandwidth_bits,
                 "cacti_capacity_bytes": cost.cacti_capacity_bits // 8,
             }
             for cost in self.gb_costs
+            if cost.cacti_capacity_bits is not None
+            and cost.cacti_capacity_bits != cost.capacity_bits
+        ]
+        rf_overrides = [
+            {
+                "logical_capacity_bytes": cost.capacity_bits // 8,
+                "bandwidth_bits": cost.bandwidth_bits,
+                "cacti_capacity_bytes": cost.cacti_capacity_bits // 8,
+            }
+            for cost in self.rf_costs
             if cost.cacti_capacity_bits is not None
             and cost.cacti_capacity_bits != cost.capacity_bits
         ]
@@ -145,15 +181,20 @@ class Level1EnergyCalibration:
             ),
             "derived_dram_p_idle_w": dram_power_model.p_idle_w,
             "derived_dram_p_active_w": dram_power_model.p_active_w,
-            "gb_physical_capacity_overrides": overrides,
+            "gb_physical_capacity_overrides": gb_overrides,
+            "rf_physical_capacity_overrides": rf_overrides,
             "ratios": {
                 "rf_to_mac": RF_TO_MAC,
                 "gb_to_mac": GB_TO_MAC,
                 "dram_to_mac": DRAM_TO_MAC,
                 "pe_idle_to_mac": self.pe_idle_to_mac_ratio,
+                "memory_clock_idle_to_access": (
+                    self.memory_clock_idle_to_access_ratio
+                ),
             },
             "onchip_standby_model": (
-                "CACTI standby leakage per RF/GB instance"
+                "CACTI leakage plus abstract clock-idle "
+                "per powered word"
             ),
         }
 
@@ -177,6 +218,9 @@ def characterize_level1_energy(
     *,
     technology_nm: float = DEFAULT_TECHNOLOGY_NM,
     pe_idle_to_mac_ratio: float = DEFAULT_PE_IDLE_TO_MAC_RATIO,
+    memory_clock_idle_to_access_ratio: float = (
+        DEFAULT_MEMORY_CLOCK_IDLE_TO_ACCESS_RATIO
+    ),
 ) -> Level1EnergyCalibration:
     if not math.isfinite(technology_nm) or technology_nm <= 0:
         raise ValueError("CACTI technology_nm must be finite and > 0.")
@@ -186,6 +230,14 @@ def characterize_level1_energy(
     ):
         raise ValueError(
             "pe_idle_to_mac_ratio must be finite and >= 0."
+        )
+    if (
+        not math.isfinite(memory_clock_idle_to_access_ratio)
+        or memory_clock_idle_to_access_ratio < 0
+    ):
+        raise ValueError(
+            "memory_clock_idle_to_access_ratio must be finite "
+            "and >= 0."
         )
     technology_um = technology_nm / 1000
     source = (
@@ -256,6 +308,9 @@ def characterize_level1_energy(
         gb_costs=gb_costs,
         rf_costs=rf_costs,
         pe_idle_to_mac_ratio=pe_idle_to_mac_ratio,
+        memory_clock_idle_to_access_ratio=(
+            memory_clock_idle_to_access_ratio
+        ),
     )
 
 
