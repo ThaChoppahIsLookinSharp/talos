@@ -241,8 +241,8 @@ def main() -> int:
             abstract_accelerator_from_level1_config,
         )
         from talos.evaluation.cacti_costs import (
-            calibrate_synthetic_dram_ip,
             characterize_level1_energy,
+            resolve_dram_ip,
             write_energy_calibration,
         )
         from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
@@ -261,23 +261,6 @@ def main() -> int:
         return 2
 
     pool = IPPool.from_yaml(ip_pool_path)
-    dram_ips = pool.by_type("dram")
-    if len(dram_ips) != 1:
-        print(
-            "ERROR: the IP pool must contain exactly one characterized DRAM.",
-            file=sys.stderr,
-        )
-        return 2
-    dram_ip = dram_ips[0]
-    dram_accesses_per_cycle = float(
-        (dram_ip.metadata or {})["accesses_per_cycle"]
-    )
-    if dram_ip.bandwidth_bits is None or dram_ip.power_model is None:
-        print(
-            "ERROR: DRAM requires bandwidth_bits and power_model.",
-            file=sys.stderr,
-        )
-        return 2
     print(
         "[Calibration] Characterizing Level 1 energy with CACTI at "
         f"{pool.technology_nm:g} nm..."
@@ -286,18 +269,19 @@ def main() -> int:
         energy_calibration = characterize_level1_energy(
             technology_nm=pool.technology_nm,
         )
-        calibrated_dram_ip = calibrate_synthetic_dram_ip(
-            dram_ip,
+        dram_ip = resolve_dram_ip(
+            pool,
             energy_calibration,
         )
         pool = IPPool(
             [
-                calibrated_dram_ip if ip.id == dram_ip.id else ip
+                ip
                 for ip in pool.ip_blocks
-            ],
+                if ip.type != "dram"
+            ]
+            + [dram_ip],
             technology_nm=pool.technology_nm,
         )
-        dram_ip = calibrated_dram_ip
         calibration_path = write_energy_calibration(
             results_dir / "energy_calibration.json",
             energy_calibration,
@@ -308,6 +292,10 @@ def main() -> int:
         print(f"ERROR: Level 1 energy calibration failed: {exc}", file=sys.stderr)
         return 2
     print(f"[Calibration] JSON: {calibration_path}")
+    print(f"[Calibration] DRAM: {dram_ip.id}")
+    dram_accesses_per_cycle = float(
+        (dram_ip.metadata or {})["accesses_per_cycle"]
+    )
     activity_evaluator = ZigZagEvaluator(
         workload=str(workload),
         opt=mapping_objective_for_level1(args.level1_objectives),

@@ -1,319 +1,597 @@
-# TSMC65 post-synthesis characterization at 200 MHz.
-# Areas are stored in mm2 and delays in ns.
+# Runtime projection of characterizations/ip_catalog_65nm.yaml.
+# Source areas are converted from um2 to mm2; numeric formats are
+# normalized for TALOS. DRAM uses the shared platform proxy.
 technology_nm: 65
-
 ips:
-  - id: pe_tms4517_simple
-    type: pe
-    area: 0.00127512
-    throughput: 1.0
-    delay: 3.103
-    fmax_mhz: 322.269
-    metadata:
-      precision_bits: 8
-      numeric_format: uint8
-      macs_per_cycle: 1
-    power_model:
-      source: genus_tsmc65
-      activity_method: activity_scenarios
-      reference_frequency_mhz: 200.0
-      p_idle_w: 0.000106091
-      p_active_w: 0.000435797
-      voltage_v: 1.08
-      temperature_c: 125.0
-      corner: wc
-      metadata:
-        active_mode: one_mac_per_cycle
-        dynamic_energy_pj_per_mac: 1.64853
-
-  - id: pe_sauria
-    type: pe
-    area: 0.00239832
-    throughput: 1.0
-    delay: 3.477
-    fmax_mhz: 287.604
-    metadata:
-      precision_bits: 8
-      numeric_format: int8
-      macs_per_cycle: 1
-    power_model:
-      source: genus_tsmc65
-      activity_method: activity_scenarios
-      reference_frequency_mhz: 200.0
-      p_idle_w: 0.000345152
-      p_active_w: 0.000740763
-      voltage_v: 1.08
-      temperature_c: 125.0
-      corner: wc
-      metadata:
-        active_mode: one_mac_per_cycle
-        dynamic_energy_pj_per_mac: 1.978055
-
-  - id: pe_tiny_xpu
-    type: pe
-    area: 0.00129348
-    throughput: 1.0
-    delay: 3.740
-    fmax_mhz: 267.380
-    metadata:
-      precision_bits: 8
-      numeric_format: int8
-      macs_per_cycle: 1
-    power_model:
-      source: genus_tsmc65
-      activity_method: activity_scenarios
-      reference_frequency_mhz: 200.0
-      p_idle_w: 0.000106200
-      p_active_w: 0.000462615
-      voltage_v: 1.08
-      temperature_c: 125.0
-      corner: wc
-      metadata:
-        active_mode: one_mac_per_cycle
-        dynamic_energy_pj_per_mac: 1.782075
-
-  - id: pe_alibaba_int8
-    type: pe
-    area: 0.00267624
-    throughput: 1.0
-    delay: 2.883
-    fmax_mhz: 346.861
-    metadata:
-      precision_bits: 8
-      numeric_format: int8
-      macs_per_cycle: 1
-    power_model:
-      source: genus_tsmc65
-      activity_method: activity_scenarios
-      reference_frequency_mhz: 200.0
-      p_idle_w: 0.000528690
-      p_active_w: 0.001152610
-      voltage_v: 1.08
-      temperature_c: 125.0
-      corner: wc
-      metadata:
-        active_mode: one_mac_per_cycle
-        dynamic_energy_pj_per_mac: 3.11960
-
-  - id: mem_bsg_1rw_8x64
-    type: register_file
-    area: 0.00531648
-    throughput: 1.0
-    delay: 1.143
-    fmax_mhz: 874.891
-    capacity_bits: 512
-    bandwidth_bits: 8
-    metadata:
-      accesses_per_cycle: 1
-      ports: 1RW
-    power_model:
-      source: genus_tsmc65
-      activity_method: activity_scenarios
-      reference_frequency_mhz: 200.0
-      p_idle_w: 0.00111907
-      p_active_w: 0.00174303
-      voltage_v: 1.08
-      temperature_c: 125.0
-      corner: wc
-      metadata:
-        active_mode: mixed_active
-        read_energy_pj: 0.70660
-        write_energy_pj: 3.65650
-
-  - id: mem_bsg_1rw_8x128
-    type: register_file
-    area: 0.01056492
-    throughput: 1.0
-    delay: 1.259
-    fmax_mhz: 794.281
-    capacity_bits: 1024
-    bandwidth_bits: 8
-    metadata:
-      accesses_per_cycle: 1
-      ports: 1RW
-    power_model:
-      source: genus_tsmc65
-      activity_method: activity_scenarios
-      reference_frequency_mhz: 200.0
-      p_idle_w: 0.00202461
-      p_active_w: 0.00326243
-      voltage_v: 1.08
-      temperature_c: 125.0
-      corner: wc
-      metadata:
-        active_mode: mixed_active
-        read_energy_pj: 1.37635
-        write_energy_pj: 7.26820
-
-  - id: mem_bsg_1rw_8x256
-    type: register_file
-    area: 0.02106828
-    throughput: 1.0
-    delay: 1.248
-    fmax_mhz: 801.282
-    capacity_bits: 2048
-    bandwidth_bits: 8
-    metadata:
-      accesses_per_cycle: 1
-      ports: 1RW
-    power_model:
-      source: genus_tsmc65
-      activity_method: activity_scenarios
-      reference_frequency_mhz: 200.0
-      p_idle_w: 0.00404238
-      p_active_w: 0.00650864
-      voltage_v: 1.08
-      temperature_c: 125.0
-      corner: wc
-      metadata:
-        active_mode: mixed_active
-        read_energy_pj: 2.72435
-        write_energy_pj: 14.49525
-
-  - id: mem_bsg_1r1w_8x64
-    type: register_file
-    area: 0.00531576
-    throughput: 1.0
-    delay: 1.115
-    fmax_mhz: 896.861
-    capacity_bits: 512
-    bandwidth_bits: 8
-    metadata:
-      accesses_per_cycle: 2
-      ports: 1R1W
-    power_model:
-      source: genus_tsmc65
-      activity_method: activity_scenarios
-      reference_frequency_mhz: 200.0
-      p_idle_w: 0.00111873
-      p_active_w: 0.00185479
-      voltage_v: 1.08
-      temperature_c: 125.0
-      corner: wc
-      metadata:
-        active_mode: mixed_active
-        read_energy_pj: 0.69760
-        write_energy_pj: 3.15635
-
-  - id: mem_bsg_1r1w_8x128
-    type: register_file
-    area: 0.01056384
-    throughput: 1.0
-    delay: 1.259
-    fmax_mhz: 794.281
-    capacity_bits: 1024
-    bandwidth_bits: 8
-    metadata:
-      accesses_per_cycle: 2
-      ports: 1R1W
-    power_model:
-      source: genus_tsmc65
-      activity_method: activity_scenarios
-      reference_frequency_mhz: 200.0
-      p_idle_w: 0.00202331
-      p_active_w: 0.00348659
-      voltage_v: 1.08
-      temperature_c: 125.0
-      corner: wc
-      metadata:
-        active_mode: mixed_active
-        read_energy_pj: 1.36820
-        write_energy_pj: 6.27960
-
-  - id: mem_bsg_1r1w_8x256
-    type: register_file
-    area: 0.02106720
-    throughput: 1.0
-    delay: 1.248
-    fmax_mhz: 801.282
-    capacity_bits: 2048
-    bandwidth_bits: 8
-    metadata:
-      accesses_per_cycle: 2
-      ports: 1R1W
-    power_model:
-      source: genus_tsmc65
-      activity_method: activity_scenarios
-      reference_frequency_mhz: 200.0
-      p_idle_w: 0.00404051
-      p_active_w: 0.00695771
-      voltage_v: 1.08
-      temperature_c: 125.0
-      corner: wc
-      metadata:
-        active_mode: mixed_active
-        read_energy_pj: 2.71260
-        write_energy_pj: 12.52700
-
-  - id: mem_openeye_sp_128x64
-    type: global_buffer
-    area: 0.08561160
-    throughput: 1.0
-    delay: 1.468
-    fmax_mhz: 681.199
-    capacity_bits: 8192
-    bandwidth_bits: 128
-    metadata:
-      accesses_per_cycle: 1
-      ports: 1RW
-    power_model:
-      source: genus_tsmc65
-      activity_method: activity_scenarios
-      reference_frequency_mhz: 200.0
-      p_idle_w: 0.01597730
-      p_active_w: 0.01768900
-      voltage_v: 1.08
-      temperature_c: 125.0
-      corner: wc
-      metadata:
-        active_mode: mixed_active
-        read_energy_pj: 1.72900
-        write_energy_pj: 9.70000
-
-  - id: mem_openeye_sp_128x256
-    type: global_buffer
-    area: 0.34236144
-    throughput: 1.0
-    delay: 1.559
-    fmax_mhz: 641.437
-    capacity_bits: 32768
-    bandwidth_bits: 128
-    metadata:
-      accesses_per_cycle: 1
-      ports: 1RW
-    power_model:
-      source: genus_tsmc65
-      activity_method: activity_scenarios
-      reference_frequency_mhz: 200.0
-      p_idle_w: 0.06432030
-      p_active_w: 0.07416590
-      voltage_v: 1.08
-      temperature_c: 125.0
-      corner: wc
-      metadata:
-        active_mode: mixed_active
-        read_energy_pj: 22.52550
-        write_energy_pj: 53.88950
-
-  # Required external-memory proxy. TALOS replaces its active power
-  # from the Level 1 energy calibration before Level 2 starts.
-  - id: dram_proxy_512b
-    type: dram
-    area: 0.0
-    throughput: 1.0
-    delay: 20.0
-    fmax_mhz: 200.0
-    bandwidth_bits: 512
-    metadata:
-      accesses_per_cycle: 1
-    power_model:
-      source: synthetic
-      activity_method: access_rate
-      reference_frequency_mhz: 200.0
-      p_idle_w: 0.02
-      p_active_w: 1.812
-      voltage_v: 1.08
-      temperature_c: 125.0
-      corner: wc
-      metadata:
-        active_mode: one_512_bit_access_per_cycle
+- id: pe_tms4517_simple
+  type: pe
+  area: 0.00127512
+  throughput: 1.0
+  delay: 3.1029999999999998
+  fmax_mhz: 322.2687721559781
+  metadata:
+    precision_bits: 8
+    activation_bits: 8
+    weight_bits: 8
+    accumulator_bits: 32
+    signed: false
+    data_type: integer
+    numeric_format: uint8
+    macs_per_cycle: 1
+    pipeline_latency_cycles: 1
+    dynamic_energy_per_mac_pj: 1.6485299999999998
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.000106091
+    p_active_w: 0.000435797
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+- id: pe_gemmini_like
+  type: pe
+  area: 0.00202464
+  throughput: 1.0
+  delay: 3.941
+  fmax_mhz: 253.7427048972342
+  metadata:
+    precision_bits: 8
+    activation_bits: 8
+    weight_bits: 8
+    accumulator_bits: 32
+    signed: true
+    data_type: integer
+    numeric_format: int8
+    macs_per_cycle: 1
+    pipeline_latency_cycles: 1
+    dynamic_energy_per_mac_pj: 1.448825
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.000114705
+    p_active_w: 0.00040447
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+- id: pe_sauria
+  type: pe
+  area: 0.00239832
+  throughput: 1.0
+  delay: 3.477
+  fmax_mhz: 287.60425654299684
+  metadata:
+    precision_bits: 8
+    activation_bits: 8
+    weight_bits: 8
+    accumulator_bits: 32
+    signed: true
+    data_type: integer
+    numeric_format: int8
+    macs_per_cycle: 1
+    pipeline_latency_cycles: 3
+    dynamic_energy_per_mac_pj: 1.9780549999999997
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.000345152
+    p_active_w: 0.000740763
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+- id: pe_simple_mac
+  type: pe
+  area: 0.00116604
+  throughput: 1.0
+  delay: 3.724
+  fmax_mhz: 268.5284640171858
+  metadata:
+    precision_bits: 8
+    activation_bits: 8
+    weight_bits: 8
+    accumulator_bits: 32
+    signed: true
+    data_type: integer
+    numeric_format: int8
+    macs_per_cycle: 1
+    pipeline_latency_cycles: 1
+    dynamic_energy_per_mac_pj: 1.744185
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.000118038
+    p_active_w: 0.000466875
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+- id: pe_tiny_xpu
+  type: pe
+  area: 0.00129348
+  throughput: 1.0
+  delay: 3.74
+  fmax_mhz: 267.379679144385
+  metadata:
+    precision_bits: 8
+    activation_bits: 8
+    weight_bits: 8
+    accumulator_bits: 32
+    signed: true
+    data_type: integer
+    numeric_format: int8
+    macs_per_cycle: 1
+    pipeline_latency_cycles: 1
+    dynamic_energy_per_mac_pj: 1.7820749999999999
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.0001062
+    p_active_w: 0.000462615
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+- id: pe_alibaba_int8
+  type: pe
+  area: 0.00267624
+  throughput: 1.0
+  delay: 2.883
+  fmax_mhz: 346.860908775581
+  metadata:
+    precision_bits: 8
+    activation_bits: 8
+    weight_bits: 8
+    accumulator_bits: 32
+    signed: true
+    data_type: integer
+    numeric_format: int8
+    macs_per_cycle: 1
+    pipeline_latency_cycles: 4
+    dynamic_energy_per_mac_pj: 3.1196000000000006
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.00052869
+    p_active_w: 0.00115261
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+- id: pe_openeye_composite_int8
+  type: pe
+  area: 0.07082892
+  throughput: 2.0
+  delay: 3.59
+  fmax_mhz: 278.5515320334262
+  metadata:
+    precision_bits: 8
+    activation_bits: 8
+    weight_bits: 8
+    accumulator_bits: 32
+    signed: true
+    data_type: integer
+    numeric_format: int8
+    macs_per_cycle: 2
+    pipeline_latency_cycles: 1
+    dynamic_energy_per_mac_pj: 0.21574999999999808
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.0138928
+    p_active_w: 0.0139791
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+  included_rfs:
+    rf_i1: mem_bsg_1rw_8x8
+    rf_i2: mem_bsg_1rw_8x16
+    rf_o: mem_bsg_1r1w_8x64
+  included_rf_power_mode: parent_idle_baseline
+- id: mem_bsg_1rw_8x8
+  type: register_file
+  area: 0.00072036
+  throughput: 1.0
+  delay: 0.9569999999999999
+  fmax_mhz: 1044.9320794148382
+  metadata:
+    accesses_per_cycle: 1.0
+    word_width_bits: 8
+    depth_words: 8
+    ports: 1RW
+    implementation: stdcell_inferred_memory
+    banks: 1
+    bank_width_bits: 8
+    read_energy_pj: 0.1221100000000001
+    write_energy_pj: 0.49743500000000007
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.000145397
+    p_active_w: 0.000232283
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+  capacity_bits: 64
+  bandwidth_bits: 8
+- id: mem_bsg_1rw_8x16
+  type: register_file
+  area: 0.00137412
+  throughput: 1.0
+  delay: 1.0789999999999997
+  fmax_mhz: 926.78405931418
+  metadata:
+    accesses_per_cycle: 1.0
+    word_width_bits: 16
+    depth_words: 8
+    ports: 1RW
+    implementation: stdcell_inferred_memory
+    banks: 1
+    bank_width_bits: 16
+    read_energy_pj: 0.2035749999999999
+    write_energy_pj: 0.9460399999999997
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.000284486
+    p_active_w: 0.000447538
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+  capacity_bits: 128
+  bandwidth_bits: 16
+- id: mem_bsg_1rw_8x32
+  type: register_file
+  area: 0.00269532
+  throughput: 1.0
+  delay: 1.0979999999999999
+  fmax_mhz: 910.7468123861568
+  metadata:
+    accesses_per_cycle: 1.0
+    word_width_bits: 32
+    depth_words: 8
+    ports: 1RW
+    implementation: stdcell_inferred_memory
+    banks: 1
+    bank_width_bits: 32
+    read_energy_pj: 0.3777049999999996
+    write_energy_pj: 1.8554099999999996
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.000562664
+    p_active_w: 0.00088051
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+  capacity_bits: 256
+  bandwidth_bits: 32
+- id: mem_bsg_1rw_8x64
+  type: register_file
+  area: 0.00531648
+  throughput: 1.0
+  delay: 1.1429999999999998
+  fmax_mhz: 874.8906386701664
+  metadata:
+    accesses_per_cycle: 1.0
+    word_width_bits: 64
+    depth_words: 8
+    ports: 1RW
+    implementation: stdcell_inferred_memory
+    banks: 1
+    bank_width_bits: 64
+    read_energy_pj: 0.7065999999999996
+    write_energy_pj: 3.6565
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.00111907
+    p_active_w: 0.00174303
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+  capacity_bits: 512
+  bandwidth_bits: 64
+- id: mem_bsg_1rw_8x128
+  type: register_file
+  area: 0.01056492
+  throughput: 1.0
+  delay: 1.259
+  fmax_mhz: 794.2811755361398
+  metadata:
+    accesses_per_cycle: 1.0
+    word_width_bits: 128
+    depth_words: 8
+    ports: 1RW
+    implementation: stdcell_inferred_memory
+    banks: 1
+    bank_width_bits: 128
+    read_energy_pj: 1.3763499999999989
+    write_energy_pj: 7.2682
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.00202461
+    p_active_w: 0.00326243
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+  capacity_bits: 1024
+  bandwidth_bits: 128
+- id: mem_bsg_1rw_8x256
+  type: register_file
+  area: 0.02106828
+  throughput: 1.0
+  delay: 1.2479999999999998
+  fmax_mhz: 801.2820512820514
+  metadata:
+    accesses_per_cycle: 1.0
+    word_width_bits: 256
+    depth_words: 8
+    ports: 1RW
+    implementation: stdcell_inferred_memory
+    banks: 1
+    bank_width_bits: 256
+    read_energy_pj: 2.7243500000000016
+    write_energy_pj: 14.49525
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.00404238
+    p_active_w: 0.00650864
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+  capacity_bits: 2048
+  bandwidth_bits: 256
+- id: mem_bsg_1r1w_8x8
+  type: register_file
+  area: 0.00071892
+  throughput: 2.0
+  delay: 0.9569999999999999
+  fmax_mhz: 1044.9320794148382
+  metadata:
+    accesses_per_cycle: 2.0
+    word_width_bits: 8
+    depth_words: 8
+    ports: 1R1W
+    implementation: stdcell_inferred_memory
+    banks: 1
+    bank_width_bits: 8
+    read_energy_pj: 0.11490499999999995
+    write_energy_pj: 0.407255
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.000145303
+    p_active_w: 0.000245334
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+  capacity_bits: 64
+  bandwidth_bits: 8
+- id: mem_bsg_1r1w_8x16
+  type: register_file
+  area: 0.00137268
+  throughput: 2.0
+  delay: 1.092
+  fmax_mhz: 915.7509157509157
+  metadata:
+    accesses_per_cycle: 2.0
+    word_width_bits: 16
+    depth_words: 8
+    ports: 1R1W
+    implementation: stdcell_inferred_memory
+    banks: 1
+    bank_width_bits: 16
+    read_energy_pj: 0.19592500000000007
+    write_energy_pj: 0.7990999999999999
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.000284371
+    p_active_w: 0.000474616
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+  capacity_bits: 128
+  bandwidth_bits: 16
+- id: mem_bsg_1r1w_8x32
+  type: register_file
+  area: 0.00269388
+  throughput: 2.0
+  delay: 1.0979999999999999
+  fmax_mhz: 910.7468123861568
+  metadata:
+    accesses_per_cycle: 2.0
+    word_width_bits: 32
+    depth_words: 8
+    ports: 1R1W
+    implementation: stdcell_inferred_memory
+    banks: 1
+    bank_width_bits: 32
+    read_energy_pj: 0.3659449999999999
+    write_energy_pj: 1.582795
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.000562296
+    p_active_w: 0.000935337
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+  capacity_bits: 256
+  bandwidth_bits: 32
+- id: mem_bsg_1r1w_8x64
+  type: register_file
+  area: 0.00531576
+  throughput: 2.0
+  delay: 1.1149999999999998
+  fmax_mhz: 896.8609865470854
+  metadata:
+    accesses_per_cycle: 2.0
+    word_width_bits: 64
+    depth_words: 8
+    ports: 1R1W
+    implementation: stdcell_inferred_memory
+    banks: 1
+    bank_width_bits: 64
+    read_energy_pj: 0.6975999999999999
+    write_energy_pj: 3.1563499999999998
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.00111873
+    p_active_w: 0.00185479
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+  capacity_bits: 512
+  bandwidth_bits: 64
+- id: mem_bsg_1r1w_8x128
+  type: register_file
+  area: 0.01056384
+  throughput: 2.0
+  delay: 1.259
+  fmax_mhz: 794.2811755361398
+  metadata:
+    accesses_per_cycle: 2.0
+    word_width_bits: 128
+    depth_words: 8
+    ports: 1R1W
+    implementation: stdcell_inferred_memory
+    banks: 1
+    bank_width_bits: 128
+    read_energy_pj: 1.3681999999999996
+    write_energy_pj: 6.279600000000001
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.00202331
+    p_active_w: 0.00348659
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+  capacity_bits: 1024
+  bandwidth_bits: 128
+- id: mem_bsg_1r1w_8x256
+  type: register_file
+  area: 0.0210672
+  throughput: 2.0
+  delay: 1.2479999999999998
+  fmax_mhz: 801.2820512820514
+  metadata:
+    accesses_per_cycle: 2.0
+    word_width_bits: 256
+    depth_words: 8
+    ports: 1R1W
+    implementation: stdcell_inferred_memory
+    banks: 1
+    bank_width_bits: 256
+    read_energy_pj: 2.7126000000000015
+    write_energy_pj: 12.527000000000003
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.00404051
+    p_active_w: 0.00695771
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+  capacity_bits: 2048
+  bandwidth_bits: 256
+- id: mem_openeye_sp_128x64
+  type: global_buffer
+  area: 0.0856116
+  throughput: 1.0
+  delay: 1.468
+  fmax_mhz: 681.1989100817439
+  metadata:
+    accesses_per_cycle: 1.0
+    word_width_bits: 64
+    depth_words: 128
+    ports: 1RW
+    implementation: stdcell_inferred_memory
+    banks: 1
+    bank_width_bits: 64
+    read_energy_pj: 1.7290000000000014
+    write_energy_pj: 9.700000000000005
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.0159773
+    p_active_w: 0.017689
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+  capacity_bits: 8192
+  bandwidth_bits: 64
+- id: mem_openeye_sp_128x256
+  type: global_buffer
+  area: 0.34236144
+  throughput: 1.0
+  delay: 1.5589999999999997
+  fmax_mhz: 641.4368184733805
+  metadata:
+    accesses_per_cycle: 1.0
+    word_width_bits: 256
+    depth_words: 128
+    ports: 1RW
+    implementation: stdcell_inferred_memory
+    banks: 1
+    bank_width_bits: 256
+    read_energy_pj: 22.52549999999999
+    write_energy_pj: 53.889500000000034
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.0643203
+    p_active_w: 0.0741659
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+  capacity_bits: 32768
+  bandwidth_bits: 256
+- id: mem_openeye_sp_128x1024
+  type: global_buffer
+  area: 1.39024656
+  throughput: 1.0
+  delay: 1.693
+  fmax_mhz: 590.6674542232723
+  metadata:
+    accesses_per_cycle: 1.0
+    word_width_bits: 1024
+    depth_words: 128
+    ports: 1RW
+    implementation: stdcell_inferred_memory
+    banks: 1
+    bank_width_bits: 1024
+    read_energy_pj: 105.16499999999984
+    write_energy_pj: 235.475
+  power_model:
+    source: Cadence Genus mapped standard-cell characterization
+    activity_method: vectorless_explicit
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.256265
+    p_active_w: 0.299709
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+  capacity_bits: 131072
+  bandwidth_bits: 1024

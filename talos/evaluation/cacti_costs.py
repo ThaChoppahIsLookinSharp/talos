@@ -11,8 +11,13 @@ import subprocess
 import tempfile
 from typing import IO, Any
 
-from talos.architecture.genome import GB_BW_OPTIONS, GB_SIZE_OPTIONS
+from talos.architecture.genome import (
+    DEFAULT_DRAM_BW_BITS,
+    GB_BW_OPTIONS,
+    GB_SIZE_OPTIONS,
+)
 from talos.ip.ip_characterization import IPBlock, PowerCharacterization
+from talos.ip.ip_pool import IPPool
 
 
 DEFAULT_TECHNOLOGY_NM = 65.0
@@ -22,6 +27,8 @@ RF_TO_MAC = 1.0
 GB_TO_MAC = 6.0
 DRAM_TO_MAC = 200.0
 CACTI_MIN_WORDS = 32
+DEFAULT_DRAM_ACCESSES_PER_CYCLE = 1.0
+DEFAULT_PLATFORM_DRAM_IDLE_POWER_W = 0.02
 
 
 @dataclass(frozen=True)
@@ -325,6 +332,77 @@ def calibrate_synthetic_dram_ip(
             accesses_per_cycle=accesses_per_cycle,
             calibration=calibration,
         ),
+    )
+
+
+def resolve_dram_ip(
+    pool: IPPool,
+    calibration: Level1EnergyCalibration,
+) -> IPBlock:
+    """Use a pool DRAM, or build the shared platform proxy."""
+    dram_ips = pool.by_type("dram")
+    if len(dram_ips) > 1:
+        raise ValueError(
+            "The IP pool may contain at most one DRAM IP."
+        )
+    if dram_ips:
+        return calibrate_synthetic_dram_ip(
+            dram_ips[0],
+            calibration,
+        )
+
+    models = [
+        ip.power_model
+        for ip in pool.ip_blocks
+        if ip.power_model is not None
+    ]
+    points = {
+        (
+            model.reference_frequency_mhz,
+            model.voltage_v,
+            model.temperature_c,
+            model.corner,
+        )
+        for model in models
+    }
+    if len(points) != 1:
+        raise ValueError(
+            "The fixed platform DRAM requires one common pool "
+            "operating point."
+        )
+    frequency, voltage, temperature, corner = points.pop()
+    dram_ip = IPBlock(
+        id="dram_platform_512b",
+        type="dram",
+        area=0.0,
+        throughput=1.0,
+        delay=1000.0 / frequency,
+        fmax_mhz=frequency,
+        bandwidth_bits=DEFAULT_DRAM_BW_BITS,
+        metadata={
+            "accesses_per_cycle": (
+                DEFAULT_DRAM_ACCESSES_PER_CYCLE
+            ),
+            "scope": "shared_platform",
+        },
+        power_model=PowerCharacterization(
+            source="synthetic",
+            activity_method="access_rate",
+            reference_frequency_mhz=frequency,
+            p_idle_w=DEFAULT_PLATFORM_DRAM_IDLE_POWER_W,
+            p_active_w=DEFAULT_PLATFORM_DRAM_IDLE_POWER_W,
+            voltage_v=voltage,
+            temperature_c=temperature,
+            corner=corner,
+            metadata={
+                "idle_mode": "refresh, PHY and standby",
+                "dynamic_energy": "Eyeriss 200x MAC proxy",
+            },
+        ),
+    )
+    return calibrate_synthetic_dram_ip(
+        dram_ip,
+        calibration,
     )
 
 

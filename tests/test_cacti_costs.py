@@ -26,6 +26,7 @@ from talos.evaluation.cacti_costs import (
     calibrate_synthetic_dram_power_model,
     characterize_level1_energy,
     parse_cacti_output,
+    resolve_dram_ip,
 )
 from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
 from talos.ga.pymoo_runner import TalosPymooProblem, run_nsga2_pymoo
@@ -266,6 +267,67 @@ class EnergyCalibrationTests(unittest.TestCase):
         self.assertNotEqual(
             calibrated.by_type("dram")[0].power_model.p_active_w,
             4.5,
+        )
+
+    def test_pool_dram_has_priority_over_fallback(self) -> None:
+        pe = IPBlock(
+            id="pe",
+            type="pe",
+            area=1,
+            throughput=1,
+            delay=1,
+            fmax_mhz=500,
+            power_model=replace(
+                synthetic_dram_model(),
+                source="genus",
+            ),
+        )
+        dram = IPBlock(
+            id="measured_dram",
+            type="dram",
+            area=0,
+            throughput=1,
+            delay=1,
+            fmax_mhz=500,
+            bandwidth_bits=256,
+            metadata={"accesses_per_cycle": 2},
+            power_model=replace(
+                synthetic_dram_model(),
+                source="measured",
+            ),
+        )
+
+        self.assertIs(
+            resolve_dram_ip(IPPool([pe, dram]), calibration()),
+            dram,
+        )
+
+    def test_platform_dram_is_shared_idle_proxy(self) -> None:
+        pe = IPBlock(
+            id="pe",
+            type="pe",
+            area=1,
+            throughput=1,
+            delay=1,
+            fmax_mhz=500,
+            power_model=replace(
+                synthetic_dram_model(),
+                source="genus",
+            ),
+        )
+
+        dram = resolve_dram_ip(IPPool([pe]), calibration())
+
+        self.assertEqual(dram.id, "dram_platform_512b")
+        self.assertEqual(dram.bandwidth_bits, 512)
+        self.assertEqual(dram.power_model.p_idle_w, 0.02)
+        self.assertEqual(
+            dram.power_model.reference_frequency_mhz,
+            500,
+        )
+        self.assertGreater(
+            dram.power_model.p_active_w,
+            dram.power_model.p_idle_w,
         )
 
 

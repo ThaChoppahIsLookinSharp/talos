@@ -134,6 +134,53 @@ class OnnxPrecisionTests(unittest.TestCase):
             {0: {"I": "int8", "W": "int8", "O": "int8"}},
         )
 
+    def test_bundled_low_precision_workloads(self) -> None:
+        cases = {
+            "alexnet_int16.onnx": (
+                {"I": "int16", "W": "int16", "O": "int16"},
+                16,
+                8,
+            ),
+            "squeezenet1_0_int8.onnx": (
+                {"I": "uint8", "W": "int8", "O": "uint8"},
+                8,
+                26,
+            ),
+            "squeezenet1_0_fp16.onnx": (
+                {"I": "float16", "W": "float16", "O": "float16"},
+                16,
+                26,
+            ),
+        }
+        for filename, (expected_format, bits, layer_count) in cases.items():
+            with self.subTest(workload=filename):
+                path = REPO_ROOT / "workloads" / filename
+                prepared, formats = prepare_onnx_workload(path)
+
+                self.assertEqual(len(formats), layer_count)
+                self.assertTrue(
+                    all(
+                        value == expected_format
+                        for value in formats.values()
+                    )
+                )
+                compute_nodes = [
+                    node
+                    for node in prepared.graph.node
+                    if node.op_type in ZIGZAG_ONNX_OPERATORS
+                ]
+                self.assertTrue(
+                    all(
+                        _precision_attributes(node)
+                        == {
+                            "act_size": bits,
+                            "weight_size": bits,
+                            "output_size": bits,
+                        }
+                        for node in compute_nodes
+                    )
+                )
+
     def test_unsupported_tensor_type_fails_clearly(self) -> None:
         tensor_info = helper.make_tensor_value_info(
             "input",

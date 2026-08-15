@@ -20,7 +20,7 @@ ips:
       pipeline_latency_cycles: 2
       dynamic_energy_per_mac_pj: 3.26145
     power_model: &characterization
-      source: genus_tsmc65_vectorless_explicit
+      source: Cadence Genus mapped standard-cell characterization
       activity_method: vectorless_explicit
       reference_frequency_mhz: 200.0
       p_idle_w: 0.00112536
@@ -318,23 +318,3 @@ ips:
       <<: *characterization
       p_idle_w: 0.256265
       p_active_w: 0.299709
-
-  # The full flow recalibrates this proxy from the Level 1 CACTI data.
-  - id: dram_proxy_512b
-    type: dram
-    area: 0.0
-    throughput: 1.0
-    delay: 20.0
-    fmax_mhz: 200.0
-    bandwidth_bits: 512
-    metadata:
-      accesses_per_cycle: 1
-    power_model:
-      source: synthetic
-      activity_method: access_rate
-      reference_frequency_mhz: 200.0
-      p_idle_w: 0.02
-      p_active_w: 0.02
-      voltage_v: 1.2
-      temperature_c: 25.0
-      corner: NCCOM

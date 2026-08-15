@@ -1,74 +1,83 @@
-# Genus TSMC65 characterization at 200 MHz, 1.2 V, 25 C.
-# Areas from the source pool are converted from um2 to mm2.
-# Only the three characterized FP32 PEs are retained.
+# INT16 runtime pool at 65 nm, 200 MHz, 1.2 V, 25 C, NCCOM.
+# PE and on-chip-memory areas are expressed in mm2.
+# The DRAM entry is a shared synthetic platform proxy; the full flow
+# recalibrates its active power from the workload energy calibration.
 technology_nm: 65
 
 ips:
-  - id: pe_sauria_fp32
+  - id: pe_sauria_int16
     type: pe
-    area: 0.01419624
+    area: 0.00509364
     throughput: 1.0
-    delay: 5.0
-    fmax_mhz: 200.0
+    delay: 4.803
+    fmax_mhz: 208.20320632937748
     metadata:
-      precision_bits: 32
-      numeric_format: float32
-      activation_bits: 32
-      weight_bits: 32
-      accumulator_bits: 32
+      precision_bits: 16
+      activation_bits: 16
+      weight_bits: 16
+      accumulator_bits: 48
+      output_bits: 48
+      signed: true
+      data_type: integer
+      numeric_format: int16
       macs_per_cycle: 1
-      pipeline_latency_cycles: 2
-      dynamic_energy_per_mac_pj: 8.8563
+      pipeline_latency_cycles: 3
+      dynamic_energy_per_mac_pj: 5.281205
     power_model: &characterization
       source: Cadence Genus mapped standard-cell characterization
       activity_method: vectorless_explicit
       reference_frequency_mhz: 200.0
-      p_idle_w: 0.00297874
-      p_active_w: 0.00475
+      p_idle_w: 0.000593089
+      p_active_w: 0.00164933
       voltage_v: 1.2
       temperature_c: 25.0
       corner: NCCOM
 
-  - id: pe_fpnew_fp32_fma
+  - id: pe_gemmini_like_int16
     type: pe
-    area: 0.01228788
+    area: 0.00519012
     throughput: 1.0
-    delay: 5.0
-    fmax_mhz: 200.0
+    delay: 4.988
+    fmax_mhz: 200.48115477145146
     metadata:
-      precision_bits: 32
-      numeric_format: float32
-      activation_bits: 32
-      weight_bits: 32
-      accumulator_bits: 32
+      precision_bits: 16
+      activation_bits: 16
+      weight_bits: 16
+      accumulator_bits: 48
+      output_bits: 48
+      signed: true
+      data_type: integer
+      numeric_format: int16
       macs_per_cycle: 1
-      pipeline_latency_cycles: 2
-      dynamic_energy_per_mac_pj: 8.46935
+      pipeline_latency_cycles: 1
+      dynamic_energy_per_mac_pj: 6.22126
     power_model:
       <<: *characterization
-      p_idle_w: 0.00242165
-      p_active_w: 0.00411552
+      p_idle_w: 0.000354188
+      p_active_w: 0.00159844
 
-  # 15.9123 pJ/MAC equals (active - idle) * 31 cycles at 200 MHz.
-  - id: pe_dawsonjon_fp32_mac
+  - id: pe_tiny_xpu_int16
     type: pe
-    area: 0.01342908
-    throughput: 0.03225806451612903
-    delay: 4.977
-    fmax_mhz: 200.92425155716293
+    area: 0.00314928
+    throughput: 1.0
+    delay: 4.997
+    fmax_mhz: 200.12007204322595
     metadata:
-      precision_bits: 32
-      numeric_format: float32
-      activation_bits: 32
-      weight_bits: 32
-      accumulator_bits: 32
-      macs_per_cycle: 0.03225806451612903
-      pipeline_latency_cycles: 30
-      dynamic_energy_per_mac_pj: 15.9123
+      precision_bits: 16
+      activation_bits: 16
+      weight_bits: 16
+      accumulator_bits: 48
+      output_bits: 48
+      signed: true
+      data_type: integer
+      numeric_format: int16
+      macs_per_cycle: 1
+      pipeline_latency_cycles: 1
+      dynamic_energy_per_mac_pj: 4.304755
     power_model:
       <<: *characterization
-      p_idle_w: 0.00322383
-      p_active_w: 0.00332649
+      p_idle_w: 0.000187489
+      p_active_w: 0.00104844
 
   - id: mem_bsg_1rw_8x8
     type: register_file
@@ -339,3 +348,28 @@ ips:
       <<: *characterization
       p_idle_w: 0.256265
       p_active_w: 0.299709
+
+  - id: dram_platform_512b
+    type: dram
+    area: 0.0
+    throughput: 1.0
+    delay: 5.0
+    fmax_mhz: 200.0
+    bandwidth_bits: 512
+    metadata:
+      accesses_per_cycle: 1
+      scope: shared_platform
+      disclaimer: Synthetic off-chip DRAM plus PHY proxy; recalibrated by the full flow.
+    power_model:
+      source: synthetic
+      activity_method: access_rate
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.02
+      p_active_w: 1.812
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: NCCOM
+      metadata:
+        idle_mode: refresh, PHY and standby
+        active_mode: One 512-bit access per cycle.
+        dynamic_energy_pj_per_access: 8960.0

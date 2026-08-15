@@ -1,0 +1,1600 @@
+technology_nm: 65
+ips:
+  -
+    id: "pe_tms4517_simple"
+    type: "pe"
+    area: 1275.12
+    throughput: 1.0
+    delay: 3.1029999999999998
+    fmax_mhz: 322.2687721559781
+    metadata:
+      precision_bits: 8
+      activation_bits: 8
+      weight_bits: 8
+      accumulator_bits: 32
+      signed: false
+      data_type: "integer"
+      numeric_format: null
+      macs_per_cycle: 1
+      pipeline_latency_cycles: 1
+      dynamic_energy_per_mac_pj: 1.6485299999999998
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.000106091
+      p_active_w: 0.000435797
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Reset deasserted, clock running, processing disabled."
+        active_mode: "One unsigned MAC accepted per cycle with changing operands."
+        active_access_mix: "One unsigned MAC accepted per cycle with changing operands."
+        representative_active_scenario: "active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/pe_tms4517_simple/power/idle.rpt"
+            sha256: "ca513a53e853c6496a6bc4067896f7578bbfda7da1a3ec6e63d28a832f8c8079"
+            reported_unit: "W"
+          active:
+            path: "artifacts_validation/raw/pe_tms4517_simple/power/active.rpt"
+            sha256: "a58ad8fc946eff06633de14a50cf193b8e5e89610d12100b249294d813cd079b"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 4
+          primary_inputs_annotated: 4
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+  -
+    id: "pe_gemmini_like"
+    type: "pe"
+    area: 2024.64
+    throughput: 1.0
+    delay: 3.941
+    fmax_mhz: 253.7427048972342
+    metadata:
+      precision_bits: 8
+      activation_bits: 8
+      weight_bits: 8
+      accumulator_bits: 32
+      signed: true
+      data_type: "integer"
+      numeric_format: null
+      macs_per_cycle: 1
+      pipeline_latency_cycles: 1
+      dynamic_energy_per_mac_pj: 1.448825
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.000114705
+      p_active_w: 0.00040447
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Reset deasserted, valid low and stable datapath/control inputs."
+        active_mode: "One valid signed MAC datum per cycle in the selected dataflow."
+        active_access_mix: "One valid signed MAC datum per cycle in the selected dataflow."
+        representative_active_scenario: "active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/pe_gemmini_like/power/idle.rpt"
+            sha256: "7ed20684f5b16a9d00de1fe91ac2a6a03ad1417948a13c758f21de54ac4957c5"
+            reported_unit: "W"
+          active:
+            path: "artifacts_validation/raw/pe_gemmini_like/power/active.rpt"
+            sha256: "32755fe6e7208ecfa5713f9171c3e38a602ed41ca5cfb8a06bb8fd315e211f4c"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 11
+          primary_inputs_annotated: 11
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+  -
+    id: "pe_sauria"
+    type: "pe"
+    area: 2398.32
+    throughput: 1.0
+    delay: 3.477
+    fmax_mhz: 287.60425654299684
+    metadata:
+      precision_bits: 8
+      activation_bits: 8
+      weight_bits: 8
+      accumulator_bits: 32
+      signed: true
+      data_type: "integer"
+      numeric_format: null
+      macs_per_cycle: 1
+      pipeline_latency_cycles: 3
+      dynamic_energy_per_mac_pj: 1.9780549999999997
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.000345152
+      p_active_w: 0.000740763
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Reset deasserted, cell and pipeline disabled."
+        active_mode: "Cell and pipeline enabled with one changing INT8 MAC input tuple per cycle."
+        active_access_mix: "Cell and pipeline enabled with one changing INT8 MAC input tuple per cycle."
+        representative_active_scenario: "active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/pe_sauria/power/idle.rpt"
+            sha256: "2a8d478d09c2db5e7837962e883c2f6dcfed93a432b0801320da6159001668e7"
+            reported_unit: "W"
+          active:
+            path: "artifacts_validation/raw/pe_sauria/power/active.rpt"
+            sha256: "45ac2824099332c28da3b13f11b893affb814410941603f317a1ce822d8cd081"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 10
+          primary_inputs_annotated: 10
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+  -
+    id: "pe_sauria_fp16"
+    type: "pe"
+    area: 5478.84
+    throughput: 1.0
+    delay: 5.0
+    fmax_mhz: 200.0
+    metadata:
+      precision_bits: 16
+      activation_bits: 16
+      weight_bits: 16
+      accumulator_bits: 16
+      signed: false
+      data_type: "float16"
+      numeric_format: "IEEE-754 binary16"
+      macs_per_cycle: 1
+      pipeline_latency_cycles: 2
+      dynamic_energy_per_mac_pj: 3.26145
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.00112536
+      p_active_w: 0.00177765
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Reset deasserted, FP16 cell and pipeline disabled."
+        active_mode: "SAURIA accepts one IEEE-754 binary16 fused multiply-add tuple per cycle."
+        active_access_mix: "SAURIA accepts one IEEE-754 binary16 fused multiply-add tuple per cycle."
+        representative_active_scenario: "active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/pe_sauria_fp16/power/idle.rpt"
+            sha256: "5b501871360611a8df7efd742e480df6dcb7944093998a268138d566ff775cf8"
+            reported_unit: "W"
+          active:
+            path: "artifacts_validation/raw/pe_sauria_fp16/power/active.rpt"
+            sha256: "1343dd813a42bf3d778b34180537362a9c20df2aa614f4b5c00b8174194f2096"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 10
+          primary_inputs_annotated: 10
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+  -
+    id: "pe_fpnew_fp16_fma"
+    type: "pe"
+    area: 4672.44
+    throughput: 1.0
+    delay: 4.998
+    fmax_mhz: 200.0800320128051
+    metadata:
+      precision_bits: 16
+      activation_bits: 16
+      weight_bits: 16
+      accumulator_bits: 16
+      signed: false
+      data_type: "float16"
+      numeric_format: "IEEE-754 binary16"
+      macs_per_cycle: 1
+      pipeline_latency_cycles: 2
+      dynamic_energy_per_mac_pj: 2.7228499999999993
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.0010609
+      p_active_w: 0.00160547
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Reset deasserted with no FP16 FMA input accepted."
+        active_mode: "FPnew accepts one IEEE-754 binary16 fused multiply-add tuple per cycle."
+        active_access_mix: "FPnew accepts one IEEE-754 binary16 fused multiply-add tuple per cycle."
+        representative_active_scenario: "active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/pe_fpnew_fp16_fma/power/idle.rpt"
+            sha256: "f79a62963140f202e94afd27e5a92b9f0b2027006f858b51447511e4703c640f"
+            reported_unit: "W"
+          active:
+            path: "artifacts_validation/raw/pe_fpnew_fp16_fma/power/active.rpt"
+            sha256: "28e8de7d1dee301ae966f7f2faa9716c87aea6e6c4ec2753f98e6838d943505f"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 5
+          primary_inputs_annotated: 5
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+  -
+    id: "pe_sauria_fp32"
+    type: "pe"
+    area: 14196.24
+    throughput: 1.0
+    delay: 5.0
+    fmax_mhz: 200.0
+    metadata:
+      precision_bits: 32
+      activation_bits: 32
+      weight_bits: 32
+      accumulator_bits: 32
+      signed: false
+      data_type: "float32"
+      numeric_format: "IEEE-754 binary32"
+      macs_per_cycle: 1
+      pipeline_latency_cycles: 2
+      dynamic_energy_per_mac_pj: 8.8563
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.00297874
+      p_active_w: 0.00475
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Reset deasserted, FP32 cell and pipeline disabled."
+        active_mode: "SAURIA accepts one binary32 fused multiply-add tuple per cycle."
+        active_access_mix: "SAURIA accepts one binary32 fused multiply-add tuple per cycle."
+        representative_active_scenario: "active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/pe_sauria_fp32/power/idle.rpt"
+            sha256: "7d3c670d44183455d35b9301c4ae202e2e5c43c26b36fb4daf8454b5610edb04"
+            reported_unit: "W"
+          active:
+            path: "artifacts_validation/raw/pe_sauria_fp32/power/active.rpt"
+            sha256: "49d0bb9834a81c27b53cb5d01e0a8498f47d6eb5c4d22a75caa717dfeba51ab3"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 10
+          primary_inputs_annotated: 10
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+  -
+    id: "pe_fpnew_fp32_fma"
+    type: "pe"
+    area: 12287.88
+    throughput: 1.0
+    delay: 5.0
+    fmax_mhz: 200.0
+    metadata:
+      precision_bits: 32
+      activation_bits: 32
+      weight_bits: 32
+      accumulator_bits: 32
+      signed: false
+      data_type: "float32"
+      numeric_format: "IEEE-754 binary32"
+      macs_per_cycle: 1
+      pipeline_latency_cycles: 2
+      dynamic_energy_per_mac_pj: 8.46935
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.00242165
+      p_active_w: 0.00411552
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Reset deasserted with no FP32 FMA input accepted."
+        active_mode: "FPnew accepts one IEEE-754 binary32 fused multiply-add tuple per cycle."
+        active_access_mix: "FPnew accepts one IEEE-754 binary32 fused multiply-add tuple per cycle."
+        representative_active_scenario: "active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/pe_fpnew_fp32_fma/power/idle.rpt"
+            sha256: "8a96229be6a048f3978e78cde2d48ba8cfd3fce3ed04ad29084cdfd5c09fe5c1"
+            reported_unit: "W"
+          active:
+            path: "artifacts_validation/raw/pe_fpnew_fp32_fma/power/active.rpt"
+            sha256: "8ff23c4e5063d7c65db05231130d4668dec9ed1d07b2416a88105711e6b08774"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 5
+          primary_inputs_annotated: 5
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+  -
+    id: "pe_dawsonjon_fp32_mac"
+    type: "pe"
+    area: 13429.08
+    throughput: 0.03225806451612903
+    delay: 4.977
+    fmax_mhz: 200.92425155716293
+    metadata:
+      precision_bits: 32
+      activation_bits: 32
+      weight_bits: 32
+      accumulator_bits: 32
+      signed: false
+      data_type: "float32"
+      numeric_format: "IEEE-754 binary32"
+      macs_per_cycle: 0.03225806451612903
+      pipeline_latency_cycles: 30
+      dynamic_energy_per_mac_pj: 15.912300000000013
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.00322383
+      p_active_w: 0.00332649
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Reset deasserted with the serialized FP32 MAC idle."
+        active_mode: "Back-to-back binary32 MAC requests exercise the upstream multiplier and adder state machines."
+        active_access_mix: "Back-to-back binary32 MAC requests exercise the upstream multiplier and adder state machines."
+        representative_active_scenario: "active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/pe_dawsonjon_fp32_mac/power/idle.rpt"
+            sha256: "e0ee747239172646caf160c21142428b460967c3f891ce9976c4531625ba9717"
+            reported_unit: "W"
+          active:
+            path: "artifacts_validation/raw/pe_dawsonjon_fp32_mac/power/active.rpt"
+            sha256: "9e9f2b980d0eabdff43f8ac0f7d43ce569b199c6b9c55616a8e1fa7da552c2fd"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 5
+          primary_inputs_annotated: 5
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+  -
+    id: "pe_simple_mac"
+    type: "pe"
+    area: 1166.04
+    throughput: 1.0
+    delay: 3.724
+    fmax_mhz: 268.5284640171858
+    metadata:
+      precision_bits: 8
+      activation_bits: 8
+      weight_bits: 8
+      accumulator_bits: 32
+      signed: true
+      data_type: "integer"
+      numeric_format: null
+      macs_per_cycle: 1
+      pipeline_latency_cycles: 1
+      dynamic_energy_per_mac_pj: 1.744185
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.000118038
+      p_active_w: 0.000466875
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Reset deasserted, clock running, enable low."
+        active_mode: "One signed MAC accumulated per cycle."
+        active_access_mix: "One signed MAC accumulated per cycle."
+        representative_active_scenario: "active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/pe_simple_mac/power/idle.rpt"
+            sha256: "afc722fbaef4eaa4f866c7103d9ec8a4f0c1ee0352b46d3bbb0031f899247f5a"
+            reported_unit: "W"
+          active:
+            path: "artifacts_validation/raw/pe_simple_mac/power/active.rpt"
+            sha256: "7bc6594ea17d5b2a866e0c27741c517c3e94f322767a42414bc3b2178f1c299d"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 5
+          primary_inputs_annotated: 5
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+  -
+    id: "pe_tiny_xpu"
+    type: "pe"
+    area: 1293.48
+    throughput: 1.0
+    delay: 3.74
+    fmax_mhz: 267.379679144385
+    metadata:
+      precision_bits: 8
+      activation_bits: 8
+      weight_bits: 8
+      accumulator_bits: 32
+      signed: true
+      data_type: "integer"
+      numeric_format: null
+      macs_per_cycle: 1
+      pipeline_latency_cycles: 1
+      dynamic_energy_per_mac_pj: 1.7820749999999999
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.0001062
+      p_active_w: 0.000462615
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Reset deasserted, clock running, no weight load and stable inputs."
+        active_mode: "Weight-stationary MAC phase; one data and partial-sum pair per cycle after a conceptual weight-load warm-up."
+        active_access_mix: "Weight-stationary MAC phase; one data and partial-sum pair per cycle after a conceptual weight-load warm-up."
+        representative_active_scenario: "active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/pe_tiny_xpu/power/idle.rpt"
+            sha256: "57c5fecff039423bfc37f89ffac53e4dd22e65299e3c9099e9c353ae07f9b642"
+            reported_unit: "W"
+          active:
+            path: "artifacts_validation/raw/pe_tiny_xpu/power/active.rpt"
+            sha256: "ef7eebe3768b881e53c873160c37df4c32497118163204bb16ec90eeb3b3749d"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 4
+          primary_inputs_annotated: 4
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+  -
+    id: "pe_alibaba_int8"
+    type: "pe"
+    area: 2676.24
+    throughput: 1.0
+    delay: 2.883
+    fmax_mhz: 346.860908775581
+    metadata:
+      precision_bits: 8
+      activation_bits: 8
+      weight_bits: 8
+      accumulator_bits: 32
+      signed: true
+      data_type: "integer"
+      numeric_format: null
+      macs_per_cycle: 1
+      pipeline_latency_cycles: 4
+      dynamic_energy_per_mac_pj: 3.1196000000000006
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.00052869
+      p_active_w: 0.00115261
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Active-low reset deasserted and PE disabled."
+        active_mode: "INT8 pipeline accepts one MAC per cycle while ping-pong selection alternates: the unselected weight entry loads as the selected entry computes."
+        active_access_mix: "INT8 pipeline accepts one MAC per cycle while ping-pong selection alternates: the unselected weight entry loads as the selected entry computes."
+        representative_active_scenario: "active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/pe_alibaba_int8/power/idle.rpt"
+            sha256: "bdf4cf96166f4c7eeeba2b173bd63d4903c52a35fe13d3dff4de6588522f9095"
+            reported_unit: "W"
+          active:
+            path: "artifacts_validation/raw/pe_alibaba_int8/power/active.rpt"
+            sha256: "87d394c4259cf8c1e7b18111b37241b022465db914b115087540113dbbd893ee"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 8
+          primary_inputs_annotated: 8
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+  -
+    id: "pe_openeye_composite_int8"
+    type: "pe"
+    area: 70828.92
+    throughput: 2.0
+    delay: 3.59
+    fmax_mhz: 278.5515320334262
+    metadata:
+      precision_bits: 8
+      activation_bits: 8
+      weight_bits: 8
+      accumulator_bits: 32
+      signed: true
+      data_type: "integer"
+      numeric_format: null
+      macs_per_cycle: 2
+      pipeline_latency_cycles: 1
+      dynamic_energy_per_mac_pj: 0.21574999999999808
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.0138928
+      p_active_w: 0.0139791
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Reset deasserted with local scratchpad and compute controls inactive."
+        active_mode: "Composite sparse PE datapath active with local scratchpads inside the boundary."
+        active_access_mix: "Composite sparse PE datapath active with local scratchpads inside the boundary."
+        representative_active_scenario: "active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/pe_openeye_composite_int8/power/idle.rpt"
+            sha256: "c34434fb70e16d50c63a8520ab2c480c42ca4998f6b52a24b261e888f33b51b5"
+            reported_unit: "W"
+          active:
+            path: "artifacts_validation/raw/pe_openeye_composite_int8/power/active.rpt"
+            sha256: "0e232894a52a9c8c2d0c31205465803d0b9f9f8ee82b48ec7c3e1cd582d3d2bd"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 12
+          primary_inputs_annotated: 12
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+    included_rfs:
+      rf_i1: "mem_bsg_1rw_8x8"
+      rf_i2: "mem_bsg_1rw_8x16"
+      rf_o: "mem_bsg_1r1w_8x64"
+    included_rf_power_mode: "parent_idle_baseline"
+  -
+    id: "mem_bsg_1rw_8x8"
+    type: "register_file"
+    area: 720.36
+    throughput: 1.0
+    delay: 0.9569999999999999
+    fmax_mhz: 1044.9320794148382
+    metadata:
+      accesses_per_cycle: 1.0
+      word_width_bits: 8
+      depth_words: 8
+      ports: "1RW"
+      implementation: "stdcell_inferred_memory"
+      banks: 1
+      bank_width_bits: 8
+      read_energy_pj: 0.1221100000000001
+      write_energy_pj: 0.49743500000000007
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.000145397
+      p_active_w: 0.000232283
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Clock active, reset deasserted, no access."
+        active_mode: "One access per cycle, alternating 50% reads and 50% writes."
+        active_access_mix: "One access per cycle, alternating 50% reads and 50% writes."
+        representative_active_scenario: "mixed_active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x8/power/idle.rpt"
+            sha256: "1b873c60d610e643cf3cbf2dfb4a1b1f39adefa1039ae3dc3ad20d51182605d7"
+            reported_unit: "W"
+          read_active:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x8/power/read_active.rpt"
+            sha256: "438ac782f054b8c7e72e255b1fcc1985521c25b09f67915ee9c33678172f33de"
+            reported_unit: "W"
+          write_active:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x8/power/write_active.rpt"
+            sha256: "c902d840b8c66cfba26a383450c0fe99be6c5455344bac7d3ac840304f99e9ff"
+            reported_unit: "W"
+          mixed_active:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x8/power/mixed_active.rpt"
+            sha256: "6cb5836ded85689cf85abb1d8f8be45a4686560e01d7832f186a702c4a1b1d2a"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 5
+          primary_inputs_annotated: 5
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+    capacity_bits: 64
+    bandwidth_bits: 8
+  -
+    id: "mem_bsg_1rw_8x16"
+    type: "register_file"
+    area: 1374.12
+    throughput: 1.0
+    delay: 1.0789999999999997
+    fmax_mhz: 926.78405931418
+    metadata:
+      accesses_per_cycle: 1.0
+      word_width_bits: 16
+      depth_words: 8
+      ports: "1RW"
+      implementation: "stdcell_inferred_memory"
+      banks: 1
+      bank_width_bits: 16
+      read_energy_pj: 0.2035749999999999
+      write_energy_pj: 0.9460399999999997
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.000284486
+      p_active_w: 0.000447538
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Clock active, reset deasserted, no access."
+        active_mode: "One access per cycle, alternating 50% reads and 50% writes."
+        active_access_mix: "One access per cycle, alternating 50% reads and 50% writes."
+        representative_active_scenario: "mixed_active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x16/power/idle.rpt"
+            sha256: "309cffa5c4be7e8bfea090f3c9a4ba6bdb961b36352c4154bfd63f44dd175bec"
+            reported_unit: "W"
+          read_active:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x16/power/read_active.rpt"
+            sha256: "9c267a66596789e99d9dabf66768225ba2cdaac10095854f417d1c6105371913"
+            reported_unit: "W"
+          write_active:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x16/power/write_active.rpt"
+            sha256: "d25697dc446511a57d70927fba96f558ab06639e812930d12b91807db3b6d902"
+            reported_unit: "W"
+          mixed_active:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x16/power/mixed_active.rpt"
+            sha256: "b3fbfe2fba39aba25ed91742b38f6c4b1a54c52c60e65ff4f260319d75fbc734"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 5
+          primary_inputs_annotated: 5
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+    capacity_bits: 128
+    bandwidth_bits: 16
+  -
+    id: "mem_bsg_1rw_8x32"
+    type: "register_file"
+    area: 2695.32
+    throughput: 1.0
+    delay: 1.0979999999999999
+    fmax_mhz: 910.7468123861568
+    metadata:
+      accesses_per_cycle: 1.0
+      word_width_bits: 32
+      depth_words: 8
+      ports: "1RW"
+      implementation: "stdcell_inferred_memory"
+      banks: 1
+      bank_width_bits: 32
+      read_energy_pj: 0.3777049999999996
+      write_energy_pj: 1.8554099999999996
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.000562664
+      p_active_w: 0.00088051
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Clock active, reset deasserted, no access."
+        active_mode: "One access per cycle, alternating 50% reads and 50% writes."
+        active_access_mix: "One access per cycle, alternating 50% reads and 50% writes."
+        representative_active_scenario: "mixed_active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x32/power/idle.rpt"
+            sha256: "4f92b9e03a40c0b43991423fb3af2eb3edb3cd705b2b6adaa7912693b78274b5"
+            reported_unit: "W"
+          read_active:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x32/power/read_active.rpt"
+            sha256: "70bd3c867784a347a51ceb6fab16429cd436beda9362d523425936c0f7262566"
+            reported_unit: "W"
+          write_active:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x32/power/write_active.rpt"
+            sha256: "cdb8646724dfd788358c247f33232c364b3a8e3bee346404d80bad6fe3031737"
+            reported_unit: "W"
+          mixed_active:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x32/power/mixed_active.rpt"
+            sha256: "f9e0d8b4699f103bd50a1f115501f22737c46146680b2b6048ab06582503ace0"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 5
+          primary_inputs_annotated: 5
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+    capacity_bits: 256
+    bandwidth_bits: 32
+  -
+    id: "mem_bsg_1rw_8x64"
+    type: "register_file"
+    area: 5316.48
+    throughput: 1.0
+    delay: 1.1429999999999998
+    fmax_mhz: 874.8906386701664
+    metadata:
+      accesses_per_cycle: 1.0
+      word_width_bits: 64
+      depth_words: 8
+      ports: "1RW"
+      implementation: "stdcell_inferred_memory"
+      banks: 1
+      bank_width_bits: 64
+      read_energy_pj: 0.7065999999999996
+      write_energy_pj: 3.6565
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.00111907
+      p_active_w: 0.00174303
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Clock active, reset deasserted, no access."
+        active_mode: "One access per cycle, alternating 50% reads and 50% writes."
+        active_access_mix: "One access per cycle, alternating 50% reads and 50% writes."
+        representative_active_scenario: "mixed_active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x64/power/idle.rpt"
+            sha256: "e53c129ea8031ed156d2a621a5f5b8c07566af9112b0bc97c7ad3c99f8af903c"
+            reported_unit: "W"
+          read_active:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x64/power/read_active.rpt"
+            sha256: "d036e38bd738c7deab42ae0b716959725e15d4958f0b19c8d86dcec873bf2339"
+            reported_unit: "W"
+          write_active:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x64/power/write_active.rpt"
+            sha256: "4583f019ecb395a7d611a9ec71d171474d7ad7b21d14561ff61cfe8003266bf3"
+            reported_unit: "W"
+          mixed_active:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x64/power/mixed_active.rpt"
+            sha256: "b5b6529b094bf2dfaeb2f9f9833a90c71077f6596614b6f4d2f218cf39631006"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 5
+          primary_inputs_annotated: 5
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+    capacity_bits: 512
+    bandwidth_bits: 64
+  -
+    id: "mem_bsg_1rw_8x128"
+    type: "register_file"
+    area: 10564.92
+    throughput: 1.0
+    delay: 1.259
+    fmax_mhz: 794.2811755361398
+    metadata:
+      accesses_per_cycle: 1.0
+      word_width_bits: 128
+      depth_words: 8
+      ports: "1RW"
+      implementation: "stdcell_inferred_memory"
+      banks: 1
+      bank_width_bits: 128
+      read_energy_pj: 1.3763499999999989
+      write_energy_pj: 7.2682
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.00202461
+      p_active_w: 0.00326243
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Clock active, reset deasserted, no access."
+        active_mode: "One access per cycle, alternating 50% reads and 50% writes."
+        active_access_mix: "One access per cycle, alternating 50% reads and 50% writes."
+        representative_active_scenario: "mixed_active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x128/power/idle.rpt"
+            sha256: "ecb5fef898e2bfe20bb664a39fab776da2ca51a2ef68a66c8f85d93caed2c86b"
+            reported_unit: "W"
+          read_active:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x128/power/read_active.rpt"
+            sha256: "0d55b599f22c479a5a073a6eb71065151043ffafd1de14806d3cef6d4261f218"
+            reported_unit: "W"
+          write_active:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x128/power/write_active.rpt"
+            sha256: "6da51bd59a9867c8b2d88a5c482320e17847f73b0232d4c1ad0e6c8cd3adb703"
+            reported_unit: "W"
+          mixed_active:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x128/power/mixed_active.rpt"
+            sha256: "dbf65514be30438d110ec689d3c75d070f3fdd275914f0f054e3da31108ece11"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 5
+          primary_inputs_annotated: 5
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+    capacity_bits: 1024
+    bandwidth_bits: 128
+  -
+    id: "mem_bsg_1rw_8x256"
+    type: "register_file"
+    area: 21068.28
+    throughput: 1.0
+    delay: 1.2479999999999998
+    fmax_mhz: 801.2820512820514
+    metadata:
+      accesses_per_cycle: 1.0
+      word_width_bits: 256
+      depth_words: 8
+      ports: "1RW"
+      implementation: "stdcell_inferred_memory"
+      banks: 1
+      bank_width_bits: 256
+      read_energy_pj: 2.7243500000000016
+      write_energy_pj: 14.49525
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.00404238
+      p_active_w: 0.00650864
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Clock active, reset deasserted, no access."
+        active_mode: "One access per cycle, alternating 50% reads and 50% writes."
+        active_access_mix: "One access per cycle, alternating 50% reads and 50% writes."
+        representative_active_scenario: "mixed_active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x256/power/idle.rpt"
+            sha256: "a4993f37aab41638b2b16f8067d9eb4eb4f69c1556cbbf6cce71730594a340a0"
+            reported_unit: "W"
+          read_active:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x256/power/read_active.rpt"
+            sha256: "1f98936d4dbc850b11fb41930def7cb327fc6919448ea3394cc55bd36f8261fa"
+            reported_unit: "W"
+          write_active:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x256/power/write_active.rpt"
+            sha256: "093b68073a935f6c2edb61d693fc05df5815ab4ee51b7e491bfd0d6fa686fd98"
+            reported_unit: "W"
+          mixed_active:
+            path: "artifacts_validation/raw/mem_bsg_1rw_8x256/power/mixed_active.rpt"
+            sha256: "6ec1babd91a3c13d96584cf45e78efc167a696370a818f82b2f928d1b820ec0d"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 5
+          primary_inputs_annotated: 5
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+    capacity_bits: 2048
+    bandwidth_bits: 256
+  -
+    id: "mem_bsg_1r1w_8x8"
+    type: "register_file"
+    area: 718.92
+    throughput: 2.0
+    delay: 0.9569999999999999
+    fmax_mhz: 1044.9320794148382
+    metadata:
+      accesses_per_cycle: 2.0
+      word_width_bits: 8
+      depth_words: 8
+      ports: "1R1W"
+      implementation: "stdcell_inferred_memory"
+      banks: 1
+      bank_width_bits: 8
+      read_energy_pj: 0.11490499999999995
+      write_energy_pj: 0.407255
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.000145303
+      p_active_w: 0.000245334
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Clock active, reset deasserted, no access."
+        active_mode: "One simultaneous read and one write per cycle."
+        active_access_mix: "One simultaneous read and one write per cycle."
+        representative_active_scenario: "mixed_active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x8/power/idle.rpt"
+            sha256: "b23f0cb7b370adce2d1eaf96d720bb3938e6d78fc56c25bcd6b1485ec12cb2ee"
+            reported_unit: "W"
+          read_active:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x8/power/read_active.rpt"
+            sha256: "40c0456a189bc4a7f1be4f19fcf02f24364881231c55e204576cf9ad1428b3d7"
+            reported_unit: "W"
+          write_active:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x8/power/write_active.rpt"
+            sha256: "28685161a3fbf7414f56dff4e5b1b4b21e2210ba601f35da76d65ab2c45e55bc"
+            reported_unit: "W"
+          mixed_active:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x8/power/mixed_active.rpt"
+            sha256: "8126778fc62d321f87288356cf6a37709b80d7107eb5dca1362ead07b423ab26"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 6
+          primary_inputs_annotated: 6
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+    capacity_bits: 64
+    bandwidth_bits: 8
+  -
+    id: "mem_bsg_1r1w_8x16"
+    type: "register_file"
+    area: 1372.68
+    throughput: 2.0
+    delay: 1.092
+    fmax_mhz: 915.7509157509157
+    metadata:
+      accesses_per_cycle: 2.0
+      word_width_bits: 16
+      depth_words: 8
+      ports: "1R1W"
+      implementation: "stdcell_inferred_memory"
+      banks: 1
+      bank_width_bits: 16
+      read_energy_pj: 0.19592500000000007
+      write_energy_pj: 0.7990999999999999
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.000284371
+      p_active_w: 0.000474616
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Clock active, reset deasserted, no access."
+        active_mode: "One simultaneous read and one write per cycle."
+        active_access_mix: "One simultaneous read and one write per cycle."
+        representative_active_scenario: "mixed_active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x16/power/idle.rpt"
+            sha256: "3498032d04b71cd563c1dd74e7e5c2c4212cf0a9df85823fd03c74b0259a7d59"
+            reported_unit: "W"
+          read_active:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x16/power/read_active.rpt"
+            sha256: "096d22f955a31916a39421125536173eda822abb4ad58701cbc041cb0c0edd69"
+            reported_unit: "W"
+          write_active:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x16/power/write_active.rpt"
+            sha256: "023b3686c7a72fbae8e6ec695be0222b5439de7bf2c3b03a4ae91c2cbc13b77a"
+            reported_unit: "W"
+          mixed_active:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x16/power/mixed_active.rpt"
+            sha256: "e73712069b89f7fac5d4a89126ca6b9409c91e1d7cafb36ce32907a59832fbb9"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 6
+          primary_inputs_annotated: 6
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+    capacity_bits: 128
+    bandwidth_bits: 16
+  -
+    id: "mem_bsg_1r1w_8x32"
+    type: "register_file"
+    area: 2693.88
+    throughput: 2.0
+    delay: 1.0979999999999999
+    fmax_mhz: 910.7468123861568
+    metadata:
+      accesses_per_cycle: 2.0
+      word_width_bits: 32
+      depth_words: 8
+      ports: "1R1W"
+      implementation: "stdcell_inferred_memory"
+      banks: 1
+      bank_width_bits: 32
+      read_energy_pj: 0.3659449999999999
+      write_energy_pj: 1.582795
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.000562296
+      p_active_w: 0.000935337
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Clock active, reset deasserted, no access."
+        active_mode: "One simultaneous read and one write per cycle."
+        active_access_mix: "One simultaneous read and one write per cycle."
+        representative_active_scenario: "mixed_active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x32/power/idle.rpt"
+            sha256: "2f2bd7966878a8712b34d9db016cbd4397866e447173abeb005ddbce19131c51"
+            reported_unit: "W"
+          read_active:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x32/power/read_active.rpt"
+            sha256: "a1852db2360989d713bf05c4cefa8bf9ef2d5cc0b88104f80ae73a93feade11e"
+            reported_unit: "W"
+          write_active:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x32/power/write_active.rpt"
+            sha256: "4afc14d079a469099531a88452ea3f646d8476726a7fe962350aea5b23725c22"
+            reported_unit: "W"
+          mixed_active:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x32/power/mixed_active.rpt"
+            sha256: "07f31fcd3433f93e3a03c20fbad214e475a7849659eb3c08868621d0ec50d5f3"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 6
+          primary_inputs_annotated: 6
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+    capacity_bits: 256
+    bandwidth_bits: 32
+  -
+    id: "mem_bsg_1r1w_8x64"
+    type: "register_file"
+    area: 5315.76
+    throughput: 2.0
+    delay: 1.1149999999999998
+    fmax_mhz: 896.8609865470854
+    metadata:
+      accesses_per_cycle: 2.0
+      word_width_bits: 64
+      depth_words: 8
+      ports: "1R1W"
+      implementation: "stdcell_inferred_memory"
+      banks: 1
+      bank_width_bits: 64
+      read_energy_pj: 0.6975999999999999
+      write_energy_pj: 3.1563499999999998
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.00111873
+      p_active_w: 0.00185479
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Clock active, reset deasserted, no access."
+        active_mode: "One simultaneous read and one write per cycle."
+        active_access_mix: "One simultaneous read and one write per cycle."
+        representative_active_scenario: "mixed_active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x64/power/idle.rpt"
+            sha256: "04e04c0fdc1fe0aa2df6985d29c471feea6ef149cceab791a08ab52ce6684e63"
+            reported_unit: "W"
+          read_active:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x64/power/read_active.rpt"
+            sha256: "664615f987ad4f02d3a572ea0d6d47f86fadffa682d8d7f9a42cf9e081705fd4"
+            reported_unit: "W"
+          write_active:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x64/power/write_active.rpt"
+            sha256: "b420379d5f36bb0a7dedcb73a3b57106d3395ed9bfe762ce8e54f333f4f53c6e"
+            reported_unit: "W"
+          mixed_active:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x64/power/mixed_active.rpt"
+            sha256: "5fe6315be8e33e9381532bfe3bd59c65856da1b562d6f8ae8691fa8b8d46fe57"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 6
+          primary_inputs_annotated: 6
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+    capacity_bits: 512
+    bandwidth_bits: 64
+  -
+    id: "mem_bsg_1r1w_8x128"
+    type: "register_file"
+    area: 10563.84
+    throughput: 2.0
+    delay: 1.259
+    fmax_mhz: 794.2811755361398
+    metadata:
+      accesses_per_cycle: 2.0
+      word_width_bits: 128
+      depth_words: 8
+      ports: "1R1W"
+      implementation: "stdcell_inferred_memory"
+      banks: 1
+      bank_width_bits: 128
+      read_energy_pj: 1.3681999999999996
+      write_energy_pj: 6.279600000000001
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.00202331
+      p_active_w: 0.00348659
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Clock active, reset deasserted, no access."
+        active_mode: "One simultaneous read and one write per cycle."
+        active_access_mix: "One simultaneous read and one write per cycle."
+        representative_active_scenario: "mixed_active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x128/power/idle.rpt"
+            sha256: "3eab213a65d33e6ec3ec9ec835fc56e0d85d51cd0656a87c5c57bdb1534e4fd1"
+            reported_unit: "W"
+          read_active:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x128/power/read_active.rpt"
+            sha256: "d31e707a65cdb603089efcdb1bfe08b523b5f0c8ecbe8718f97f2a786f712057"
+            reported_unit: "W"
+          write_active:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x128/power/write_active.rpt"
+            sha256: "6953c0c568e8d7f6f1be790bee9f82ff7945201255bc4d2f14dd6a335c0316fb"
+            reported_unit: "W"
+          mixed_active:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x128/power/mixed_active.rpt"
+            sha256: "adce8e201140814a4b55daccbef807008c50fc121ac4f66c2fdc38ecd888b184"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 6
+          primary_inputs_annotated: 6
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+    capacity_bits: 1024
+    bandwidth_bits: 128
+  -
+    id: "mem_bsg_1r1w_8x256"
+    type: "register_file"
+    area: 21067.2
+    throughput: 2.0
+    delay: 1.2479999999999998
+    fmax_mhz: 801.2820512820514
+    metadata:
+      accesses_per_cycle: 2.0
+      word_width_bits: 256
+      depth_words: 8
+      ports: "1R1W"
+      implementation: "stdcell_inferred_memory"
+      banks: 1
+      bank_width_bits: 256
+      read_energy_pj: 2.7126000000000015
+      write_energy_pj: 12.527000000000003
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.00404051
+      p_active_w: 0.00695771
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Clock active, reset deasserted, no access."
+        active_mode: "One simultaneous read and one write per cycle."
+        active_access_mix: "One simultaneous read and one write per cycle."
+        representative_active_scenario: "mixed_active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x256/power/idle.rpt"
+            sha256: "de981819b6f4962a113a72e99278124b2ee73520651cffc2d1ca3b4a93712c9d"
+            reported_unit: "W"
+          read_active:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x256/power/read_active.rpt"
+            sha256: "815f74ae180d25ad3547363a8461c23c75f400f07eeb9a924d54c39d551f6437"
+            reported_unit: "W"
+          write_active:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x256/power/write_active.rpt"
+            sha256: "792e077b777f0c50fb4cb5bea93408660c385751f0e75cc0e0271cad2a4c6e2f"
+            reported_unit: "W"
+          mixed_active:
+            path: "artifacts_validation/raw/mem_bsg_1r1w_8x256/power/mixed_active.rpt"
+            sha256: "da5e748fa798587b19832c9050fa6f99d4681578b4efb6a81f987a500baa776c"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 6
+          primary_inputs_annotated: 6
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+    capacity_bits: 2048
+    bandwidth_bits: 256
+  -
+    id: "mem_openeye_sp_128x64"
+    type: "global_buffer"
+    area: 85611.6
+    throughput: 1.0
+    delay: 1.468
+    fmax_mhz: 681.1989100817439
+    metadata:
+      accesses_per_cycle: 1.0
+      word_width_bits: 64
+      depth_words: 128
+      ports: "1RW"
+      implementation: "stdcell_inferred_memory"
+      banks: 1
+      bank_width_bits: 64
+      read_energy_pj: 1.7290000000000014
+      write_energy_pj: 9.700000000000005
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.0159773
+      p_active_w: 0.017689
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Clock active, no access."
+        active_mode: "Mutually exclusive 50% read/50% write intent represented by equal marginal toggle rates."
+        active_access_mix: "Mutually exclusive 50% read/50% write intent represented by equal marginal toggle rates."
+        representative_active_scenario: "mixed_active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/mem_openeye_sp_128x64/power/idle.rpt"
+            sha256: "04e413392b6a3375dc5bd3ae1e2dd6ab0f96b8d4f2c5eee6b61218a3a0da7f34"
+            reported_unit: "W"
+          read_active:
+            path: "artifacts_validation/raw/mem_openeye_sp_128x64/power/read_active.rpt"
+            sha256: "ad38fa5673a1297cefc91e918ef4121735a815f531ecfbf70a845b861c9af668"
+            reported_unit: "W"
+          write_active:
+            path: "artifacts_validation/raw/mem_openeye_sp_128x64/power/write_active.rpt"
+            sha256: "59e278482d9f93e89ce8d3bbead80f5f0701ed460a760e50105bee25c251a106"
+            reported_unit: "W"
+          mixed_active:
+            path: "artifacts_validation/raw/mem_openeye_sp_128x64/power/mixed_active.rpt"
+            sha256: "14fd8055e20d9bd6cd35286499980c2cfc5f021c7d57f203246916eee2663c2c"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 4
+          primary_inputs_annotated: 4
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+    capacity_bits: 8192
+    bandwidth_bits: 64
+  -
+    id: "mem_openeye_sp_128x256"
+    type: "global_buffer"
+    area: 342361.44
+    throughput: 1.0
+    delay: 1.5589999999999997
+    fmax_mhz: 641.4368184733805
+    metadata:
+      accesses_per_cycle: 1.0
+      word_width_bits: 256
+      depth_words: 128
+      ports: "1RW"
+      implementation: "stdcell_inferred_memory"
+      banks: 1
+      bank_width_bits: 256
+      read_energy_pj: 22.52549999999999
+      write_energy_pj: 53.889500000000034
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.0643203
+      p_active_w: 0.0741659
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Clock active, no access."
+        active_mode: "Mutually exclusive 50% read/50% write intent represented by equal marginal toggle rates."
+        active_access_mix: "Mutually exclusive 50% read/50% write intent represented by equal marginal toggle rates."
+        representative_active_scenario: "mixed_active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/mem_openeye_sp_128x256/power/idle.rpt"
+            sha256: "fa87fc82e626e3a83bfc52f051b167c92e68fd85c16dc88a4d3cbb17b77663ec"
+            reported_unit: "W"
+          read_active:
+            path: "artifacts_validation/raw/mem_openeye_sp_128x256/power/read_active.rpt"
+            sha256: "cb5620e41eb5bbbd141c8ab770d601a27372bb4b67e1f4efdbf808f032627b9f"
+            reported_unit: "W"
+          write_active:
+            path: "artifacts_validation/raw/mem_openeye_sp_128x256/power/write_active.rpt"
+            sha256: "3913b16894f9062d5d91c5ab60ef42d0fc33e75294b2bd45004e1de3cc829cf2"
+            reported_unit: "W"
+          mixed_active:
+            path: "artifacts_validation/raw/mem_openeye_sp_128x256/power/mixed_active.rpt"
+            sha256: "4a9ad3633624ab88c701d4c9fdb414275c68045a06935774170d7f58c34e8690"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 4
+          primary_inputs_annotated: 4
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+    capacity_bits: 32768
+    bandwidth_bits: 256
+  -
+    id: "mem_openeye_sp_128x1024"
+    type: "global_buffer"
+    area: 1390246.56
+    throughput: 1.0
+    delay: 1.693
+    fmax_mhz: 590.6674542232723
+    metadata:
+      accesses_per_cycle: 1.0
+      word_width_bits: 1024
+      depth_words: 128
+      ports: "1RW"
+      implementation: "stdcell_inferred_memory"
+      banks: 1
+      bank_width_bits: 1024
+      read_energy_pj: 105.16499999999984
+      write_energy_pj: 235.475
+    power_model:
+      source: "Cadence Genus mapped standard-cell characterization"
+      activity_method: "vectorless_explicit"
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.256265
+      p_active_w: 0.299709
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: "NCCOM"
+      metadata:
+        idle_mode: "Clock active, no access."
+        active_mode: "Mutually exclusive 50% read/50% write intent represented by equal marginal toggle rates."
+        active_access_mix: "Mutually exclusive 50% read/50% write intent represented by equal marginal toggle rates."
+        representative_active_scenario: "mixed_active"
+        scenario_reports:
+          idle:
+            path: "artifacts_validation/raw/mem_openeye_sp_128x1024/power/idle.rpt"
+            sha256: "92fb27b4eb673afe1a76370846528d1577e200733b7aa19fa0da5148a22bcd44"
+            reported_unit: "W"
+          read_active:
+            path: "artifacts_validation/raw/mem_openeye_sp_128x1024/power/read_active.rpt"
+            sha256: "abf949adf49e08cf201b1d164d35d30ba10e3c1e9dce22b9845aefc6aae692e8"
+            reported_unit: "W"
+          write_active:
+            path: "artifacts_validation/raw/mem_openeye_sp_128x1024/power/write_active.rpt"
+            sha256: "a4a2fbd8310ef8724d1987658ea4ab2866dd9afdf30b9b87d39595f295f26c80"
+            reported_unit: "W"
+          mixed_active:
+            path: "artifacts_validation/raw/mem_openeye_sp_128x1024/power/mixed_active.rpt"
+            sha256: "ad9f8505575fbefaedcd02e28d5b2340763771101d6d9154e593d9ebf4c40315"
+            reported_unit: "W"
+        annotation_coverage:
+          primary_inputs_expected: 4
+          primary_inputs_annotated: 4
+          primary_input_percent: 100.0
+          internal_net_percent: "not_reported_by_vectorless_explicit"
+        observation_cycles: 0
+        warmup_cycles: 0
+        seed: "not_applicable_vectorless"
+        toggle_model:
+          random_data_transition_probability_per_cycle: 0.5
+          alternating_transition_probability_per_cycle: 1.0
+          clock_transitions_per_cycle: 2.0
+        talos_schema_commit: "2d0e110a690048085d61378aa51da61817885aa8"
+    capacity_bits: 131072
+    bandwidth_bits: 1024
