@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,6 @@ from talos.level2.problem import Level2PymooProblem
 from talos.level2.runner import (
     DEFAULT_LEVEL2_OBJECTIVES,
     _evaluate_solution,
-    _solution_sort_key,
     _write_solutions_csv,
 )
 
@@ -66,7 +66,23 @@ def run_level2_exhaustive(
         if row["valid"] and row["constraints_satisfied"]:
             rows.append(row)
 
-    rows.sort(key=_solution_sort_key)
+    if len(objectives) == 1:
+        for row in rows:
+            row["balanced_score"] = None
+        rows.sort(
+            key=lambda row: (
+                float(row["objective_values"][0]),
+                tuple(float(value) for value in row["genome"]),
+            )
+        )
+    else:
+        _assign_balanced_scores(rows)
+        rows.sort(
+            key=lambda row: (
+                float(row["balanced_score"]),
+                tuple(float(value) for value in row["genome"]),
+            )
+        )
 
     csv_path = None
     if save_csv:
@@ -84,3 +100,30 @@ def run_level2_exhaustive(
         explored_combinations=explored_combinations,
         csv_path=csv_path,
     )
+
+
+def _assign_balanced_scores(rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        return
+
+    objective_count = len(rows[0]["objective_values"])
+    minimums = [
+        min(float(row["objective_values"][index]) for row in rows)
+        for index in range(objective_count)
+    ]
+    maximums = [
+        max(float(row["objective_values"][index]) for row in rows)
+        for index in range(objective_count)
+    ]
+
+    for row in rows:
+        normalized_squares = [
+            0.0
+            if maximum == minimum
+            else (
+                (float(row["objective_values"][index]) - minimum)
+                / (maximum - minimum)
+            ) ** 2
+            for index, (minimum, maximum) in enumerate(zip(minimums, maximums))
+        ]
+        row["balanced_score"] = math.sqrt(sum(normalized_squares))

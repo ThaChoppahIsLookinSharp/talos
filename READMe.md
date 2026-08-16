@@ -108,7 +108,7 @@ genes to the referenced RF IPs: the RFs remain visible for capacity, bandwidth,
 ZigZag accesses, and power, but their area, delay, throughput, and `fmax` are not
 counted a second time.
 
-The exhaustive strategy evaluates every compatible combination up to `--level2-exhaustive-max-combinations`. NSGA-II is preferable when the Cartesian product is large.
+The exhaustive strategy evaluates every compatible combination up to `--level2-exhaustive-max-combinations`. After invalid and constrained candidates are removed, a single objective is ranked directly by its minimum; multiple objectives are independently normalized over the feasible set and ranked by Euclidean distance to the normalized ideal. This only orders the full feasible set: it adds no pruning or Pareto filtering. NSGA-II is preferable when the Cartesian product is large.
 
 The full flow sends Pareto solutions first and can fill `--max-architectures` with distinct feasible individuals from the final Level 1 population. The objective sweep starts with three architectures per objective case.
 When physical constraints are present, it also screens each Level 1 candidate

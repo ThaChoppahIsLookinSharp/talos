@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import math
+import tempfile
 import unittest
 import warnings
 from pathlib import Path
@@ -22,6 +23,7 @@ from talos.level2 import (
     run_level2_nsga2,
 )
 from talos.level2.problem import Level2PymooProblem
+from talos.level2.exhaustive_runner import _assign_balanced_scores
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -77,6 +79,28 @@ def dram_ip() -> IPBlock:
         bandwidth_bits=512,
         metadata={"accesses_per_cycle": 1},
         power_model=power_model(),
+    )
+
+
+def ranking_rows(objectives: list[list[float]]) -> list[dict[str, object]]:
+    return [
+        {
+            "genome": [float(index)],
+            "objective_values": values,
+            "balanced_score": None,
+        }
+        for index, values in enumerate(objectives)
+    ]
+
+
+def balanced_order(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    _assign_balanced_scores(rows)
+    return sorted(
+        rows,
+        key=lambda row: (
+            float(row["balanced_score"]),
+            tuple(float(value) for value in row["genome"]),
+        ),
     )
 
 
@@ -166,6 +190,93 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
             {2e-6},
         )
         self.assertEqual(solution["strategy"], "exhaustive")
+        self.assertTrue(
+            all(isinstance(row["balanced_score"], float) for row in result.solutions)
+        )
+        self.assertEqual(
+            solution["balanced_score"],
+            min(row["balanced_score"] for row in result.solutions),
+        )
+
+    def test_single_objective_keeps_minimum_and_no_balanced_score(self) -> None:
+        accelerator = AbstractAccelerator(
+            name="single-objective",
+            components=[AbstractComponent(name="pe_array", type="pe")],
+        )
+        pool = IPPool(
+            [
+                IPBlock("pe_large", "pe", 3, 1, 1),
+                IPBlock("pe_small", "pe", 1, 1, 1),
+                IPBlock("pe_medium", "pe", 2, 1, 1),
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            result = run_level2_exhaustive(
+                accelerator=accelerator,
+                ip_pool=pool,
+                objective_names=["area"],
+                results_dir=temporary,
+            )
+            csv_text = result.csv_path.read_text(encoding="utf-8")
+
+        self.assertEqual(result.solutions[0]["area"], 1)
+        self.assertTrue(all(row["balanced_score"] is None for row in result.solutions))
+        self.assertIn("balanced_score", csv_text.splitlines()[0])
+
+    def test_balanced_score_prefers_the_normalized_compromise(self) -> None:
+        rows = ranking_rows([[1, 100], [2, 20], [3, 10]])
+
+        ordered = balanced_order(rows)
+
+        self.assertEqual(ordered[0]["genome"], [1.0])
+        self.assertAlmostEqual(ordered[0]["balanced_score"], math.sqrt(0.25 + 1 / 81))
+
+    def test_balanced_score_is_scale_and_objective_order_invariant(self) -> None:
+        original = balanced_order(ranking_rows([[1, 100], [2, 20], [3, 10]]))
+        scaled = balanced_order(ranking_rows([[1000, 100], [2000, 20], [3000, 10]]))
+        reordered = balanced_order(ranking_rows([[100, 1], [20, 2], [10, 3]]))
+        tied = balanced_order(ranking_rows([[3, 1], [1, 3]]))
+        tied_reordered = balanced_order(ranking_rows([[1, 3], [3, 1]]))
+
+        self.assertEqual(original[0]["genome"], [1.0])
+        self.assertEqual(scaled[0]["genome"], [1.0])
+        self.assertEqual(reordered[0]["genome"], [1.0])
+        self.assertEqual(tied[0]["genome"], [0.0])
+        self.assertEqual(tied_reordered[0]["genome"], [0.0])
+
+    def test_constant_objectives_and_one_candidate_have_finite_scores(self) -> None:
+        rows = ranking_rows([[1, 50, 2e-6], [2, 20, 2e-6], [3, 10, 2e-6]])
+        ordered = balanced_order(rows)
+        one_candidate = balanced_order(ranking_rows([[7, 11, 13]]))
+
+        self.assertEqual(ordered[0]["genome"], [1.0])
+        self.assertTrue(all(math.isfinite(row["balanced_score"]) for row in rows))
+        self.assertEqual(one_candidate[0]["balanced_score"], 0.0)
+
+    def test_constraints_do_not_contribute_to_normalization_ranges(self) -> None:
+        accelerator = AbstractAccelerator(
+            name="frequency-filtered",
+            components=[AbstractComponent(name="pe_array", type="pe")],
+        )
+        pool = IPPool(
+            [
+                IPBlock("pe_invalid", "pe", 1, 1, 1, fmax_mhz=50),
+                IPBlock("pe_area", "pe", 2, 1, 100, fmax_mhz=200),
+                IPBlock("pe_delay", "pe", 3, 1, 50, fmax_mhz=200),
+            ]
+        )
+
+        result = run_level2_exhaustive(
+            accelerator=accelerator,
+            ip_pool=pool,
+            objective_names=["area", "delay"],
+            constraints=UserConstraints(min_frequency_mhz=100),
+            save_csv=False,
+        )
+
+        self.assertEqual(len(result.solutions), 2)
+        self.assertTrue(all(row["balanced_score"] == 1.0 for row in result.solutions))
 
     def test_exhaustive_runner_respects_constraints(self) -> None:
         ip_pool = IPPool.from_yaml(SYNTHETIC_POOL_PATH)
