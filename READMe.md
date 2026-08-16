@@ -83,6 +83,11 @@ worker. CACTI requires a physical depth of at least 32 words, so the logical
 original logical capacities, and the overprovisioning is recorded in
 `energy_calibration.json`.
 
+Level 1 also precomputes 36 PE-plus-RF area costs and 25 global-buffer area
+costs from the selected characterized IP pool. Candidate evaluation then uses
+two table lookups, counting RFs embedded in composite PEs only once and keeping
+the global-buffer replication implied by `gb_served_dims`.
+
 ### Level 1 to Level 2
 
 A decoded Level 1 architecture becomes:
@@ -119,15 +124,15 @@ selected Level 2 strategy instead of being rejected by the prefilter.
 | --- | --- |
 | `latency` | ZigZag workload latency |
 | `energy` | ZigZag workload energy |
-| `area` | Current analytical area proxy |
+| `area` | Minimum compatible characterized IP area in mm² |
 | `edp` | energy × latency |
 | `eap` | energy × area |
 | `alp` | area × latency |
 
-The analytical area proxy counts the PE array, all three per-PE RF families,
-and the actual number of global-buffer replicas implied by
-`gb_served_dims`. It is useful for Level 1 ranking, but physical constraints
-still use characterized Level 2 area.
+The Level 1 area is a pool-specific lower bound. It selects the cheapest
+compatible PE/RF bundle and global-buffer macro, including composite PEs, while
+Level 2 remains authoritative for complete physical combinations and
+constraints.
 
 The Level 1 objectives also select ZigZag's mapping criterion. Energy objectives
 use `energy`, latency objectives use `latency`, and a mix of both uses `EDP`;
@@ -286,7 +291,7 @@ All commands below are run from the repository root.
 ### Smoke-test one Level 1 genome
 
 ```bash
-python -m talos
+python -m talos --ip-pool configs/ip_pool_synthetic_65nm.yaml
 ```
 
 Use `--debug` to show ZigZag output and print the generated mapping and accelerator YAML.
@@ -296,6 +301,7 @@ Use `--debug` to show ZigZag output and print the generated mapping and accelera
 ```bash
 python -m talos --ga \
   --workload workloads/alexnet.onnx \
+  --ip-pool configs/ip_pool_synthetic_65nm.yaml \
   --objectives latency energy area \
   --pop-size 12 \
   --generations 4 \
@@ -698,7 +704,8 @@ python examples/objective_sweep.py --help
 - The MAC, RF, and DRAM costs are 65 nm, 16-bit Eyeriss proxies; MAC energy is not scaled for 8-bit operation.
 - CACTI models the GB SRAM but not the FIFOs included in the Eyeriss GB ratio.
 - Level 1 does not yet model NoC energy, MAC/RF leakage, or a persistent CACTI cache.
-- Level 1 area is an analytical proxy unless a backend provides a physical area result.
+- Level 1 area excludes DRAM, NoC, wiring and arbitration because they are not
+  selectable components in the current abstract accelerator graph.
 - DRAM is a fixed platform characterization. A pool entry overrides
   the shared proxy; otherwise all precisions use the same 512-bit,
   0.02 W idle model. Its workload power and energy are included.

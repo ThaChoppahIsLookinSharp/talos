@@ -30,6 +30,7 @@ from talos.evaluation.cacti_costs import (
     parse_cacti_output,
     resolve_dram_ip,
 )
+from talos.evaluation.area_calibration import Level1AreaCalibration
 from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
 from talos.ga.pymoo_runner import TalosPymooProblem, run_nsga2_pymoo
 from talos.ip import IPBlock, IPPool, PowerCharacterization
@@ -65,6 +66,21 @@ def calibration() -> Level1EnergyCalibration:
             for size in RF_SIZE_OPTIONS
             for bandwidth in RF_BW_OPTIONS
         ),
+    )
+
+
+def area_calibration() -> Level1AreaCalibration:
+    return Level1AreaCalibration(
+        pe_rf_area_mm2={
+            (size, bandwidth): 1.0
+            for size in RF_SIZE_OPTIONS
+            for bandwidth in RF_BW_OPTIONS
+        },
+        gb_area_mm2={
+            (size, bandwidth): 1.0
+            for size in GB_SIZE_OPTIONS
+            for bandwidth in GB_BW_OPTIONS
+        },
     )
 
 
@@ -377,6 +393,7 @@ class Level1EnergyIntegrationTests(unittest.TestCase):
         ):
             run_nsga2_pymoo(
                 workload_path="unused.onnx",
+                area_calibration=area_calibration(),
                 pop_size=2,
                 n_gen=1,
                 n_workers=2,
@@ -391,6 +408,7 @@ class Level1EnergyIntegrationTests(unittest.TestCase):
         problem = TalosPymooProblem(
             workload_path="unused.onnx",
             objective_names=["energy"],
+            area_calibration=area_calibration(),
             adapter=object(),
             energy_calibration=result,
         )
@@ -399,6 +417,7 @@ class Level1EnergyIntegrationTests(unittest.TestCase):
 
         self.assertIsNone(state["_adapter"])
         self.assertIs(state["energy_calibration"], result)
+        self.assertEqual(state["area_calibration"], area_calibration())
 
     def test_accelerator_uses_calibrated_mac_rf_gb_and_dram(self) -> None:
         result = calibration()
@@ -408,6 +427,7 @@ class Level1EnergyIntegrationTests(unittest.TestCase):
                 workdir=temporary,
                 dram_power_model=synthetic_dram_model(),
                 energy_calibration=result,
+                area_calibration=area_calibration(),
             )
             config = decode_genome(default_genome())
             accelerator = evaluator._build_accelerator(config)
@@ -448,6 +468,7 @@ class Level1EnergyIntegrationTests(unittest.TestCase):
                 workload="unused.onnx",
                 workdir=temporary,
                 energy_calibration=result,
+                area_calibration=area_calibration(),
             )
             first = evaluator._build_accelerator(
                 decode_genome([0, 0, 0, 0, 0, 0, 0])

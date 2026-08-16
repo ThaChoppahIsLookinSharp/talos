@@ -27,6 +27,7 @@ from talos.evaluation.cacti_costs import (
     Level1EnergyCalibration,
     calibrate_synthetic_dram_power_model,
 )
+from talos.evaluation.area_calibration import Level1AreaCalibration
 from talos.evaluation.workload_activity import (
     WorkloadActivityProfile,
     extract_workload_activity_profile,
@@ -225,7 +226,6 @@ class ZigZagEvaluator:
         workload: str,
         mapping: list[dict[str, Any]] | None = None,
         opt: str = "EDP",
-        use_mock_area: bool = True,
         workdir: str | None = None,
         debug: bool = False,
         lpf_limit: int = 6,
@@ -234,6 +234,7 @@ class ZigZagEvaluator:
         dram_accesses_per_cycle: float = DEFAULT_DRAM_ACCESSES_PER_CYCLE,
         dram_power_model: PowerCharacterization = DEFAULT_DRAM_POWER_MODEL,
         energy_calibration: Level1EnergyCalibration | None = None,
+        area_calibration: Level1AreaCalibration | None = None,
     ) -> None:
         if dram_bandwidth_bits <= 0:
             raise ValueError("DRAM bandwidth must be > 0.")
@@ -247,6 +248,10 @@ class ZigZagEvaluator:
             raise ValueError(
                 "Level 1 energy_calibration must be provided before evaluation."
             )
+        if not isinstance(area_calibration, Level1AreaCalibration):
+            raise ValueError(
+                "Level 1 area_calibration must be provided before evaluation."
+            )
         if opt not in ZIGZAG_MAPPING_OBJECTIVES:
             raise ValueError(
                 f"ZigZag opt must be one of {sorted(ZIGZAG_MAPPING_OBJECTIVES)}."
@@ -254,7 +259,6 @@ class ZigZagEvaluator:
         self.workload = workload
         self.mapping = mapping if mapping is not None else self._default_mapping()
         self.opt = opt
-        self.use_mock_area = use_mock_area
         self.workdir = (
             Path(workdir) if workdir is not None else Path.cwd() / ".talos_zigzag"
         )
@@ -265,6 +269,7 @@ class ZigZagEvaluator:
         self.dram_bandwidth_bits = dram_bandwidth_bits
         self.dram_accesses_per_cycle = dram_accesses_per_cycle
         self.energy_calibration = energy_calibration
+        self.area_calibration = area_calibration
         self.dram_power_model = calibrate_synthetic_dram_power_model(
             dram_power_model,
             dram_bandwidth_bits=dram_bandwidth_bits,
@@ -282,6 +287,7 @@ class ZigZagEvaluator:
     def evaluate(self, genome: list[float]) -> EvaluationResult:
         try:
             cfg = decode_genome(genome)
+            area = self.area_calibration.area_mm2(cfg)
             accelerator = self._build_accelerator(cfg)
             accelerator_yaml_path = self._write_accelerator_yaml(accelerator)
 
@@ -303,8 +309,6 @@ class ZigZagEvaluator:
                 cfg,
                 activity_profile,
             )
-            area = self._extract_area(cme, cfg)
-
             return EvaluationResult(
                 latency=float(latency),
                 energy=float(energy),
@@ -644,53 +648,6 @@ class ZigZagEvaluator:
                 },
             }
         ]
-
-    def _extract_area(self, cme: Any, cfg: ArchitectureConfig) -> float:
-        """
-        First try to recover area from ZigZag's returned object.
-        Fall back to a very rough analytical estimate.
-        """
-        candidate_attrs = [
-            "area_total",
-            "total_area",
-            "area",
-        ]
-
-        for attr in candidate_attrs:
-            if hasattr(cme, attr):
-                value = getattr(cme, attr)
-                if isinstance(value, (int, float)):
-                    return float(value)
-
-        if isinstance(cme, dict):
-            for key in candidate_attrs:
-                if key in cme and isinstance(cme[key], (int, float)):
-                    return float(cme[key])
-
-        if self.use_mock_area:
-            return self._estimate_area(cfg)
-
-        raise ValueError("ZigZag did not return an area value.")
-
-    def _estimate_area(self, cfg: ArchitectureConfig) -> float:
-        """
-        Very rough placeholder area model.
-
-        Replace this later with your own Level-2 IP characterization model.
-        """
-        mac_count = cfg.pe_x * cfg.pe_y
-        gb_count = prod(
-            size
-            for dimension, size in (("D1", cfg.pe_x), ("D2", cfg.pe_y))
-            if dimension not in cfg.gb_served_dims
-        )
-
-        mac_area = mac_count * 1.0
-        rf_area = 3 * mac_count * cfg.rf_size_bits * 0.001
-        gb_area = gb_count * cfg.gb_size_bits * 0.0005
-
-        return float(mac_area + rf_area + gb_area)
-
 
 _ZIGZAG_WORKER: ZigZagEvaluator | None = None
 

@@ -47,7 +47,7 @@ SUMMARY_FIELDNAMES = [
     "level1_latency_cycles",
     "level1_latency",
     "level1_energy",
-    "level1_area_proxy",
+    "level1_physical_area_mm2",
     "zigzag_mapping_objective",
     "level2_solution_index",
     "level2_genome",
@@ -275,6 +275,7 @@ def main() -> int:
             resolve_dram_ip,
             write_energy_calibration,
         )
+        from talos.evaluation.area_calibration import characterize_level1_area
         from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
         from talos.ga.pymoo_runner import run_nsga2_pymoo
         from talos.ip import IPPool
@@ -312,6 +313,10 @@ def main() -> int:
             + [dram_ip],
             technology_nm=pool.technology_nm,
         )
+        area_calibration = characterize_level1_area(
+            pool,
+            min_frequency_mhz=args.min_frequency_mhz,
+        )
         calibration_path = write_energy_calibration(
             results_dir / "energy_calibration.json",
             energy_calibration,
@@ -319,7 +324,7 @@ def main() -> int:
             dram_power_model=dram_ip.power_model,
         )
     except Exception as exc:
-        print(f"ERROR: Level 1 energy calibration failed: {exc}", file=sys.stderr)
+        print(f"ERROR: Level 1 calibration failed: {exc}", file=sys.stderr)
         return 2
     print(f"[Calibration] JSON: {calibration_path}")
     print(f"[Calibration] DRAM: {dram_ip.id}")
@@ -355,6 +360,7 @@ def main() -> int:
             dram_accesses_per_cycle=dram_accesses_per_cycle,
             dram_power_model=dram_ip.power_model,
             energy_calibration=energy_calibration,
+            area_calibration=area_calibration,
         )
         print("[Level 1] Running architecture exploration...")
         try:
@@ -375,6 +381,7 @@ def main() -> int:
                 dram_accesses_per_cycle=dram_accesses_per_cycle,
                 dram_power_model=dram_ip.power_model,
                 energy_calibration=energy_calibration,
+                area_calibration=area_calibration,
             )
         except ModuleNotFoundError as exc:
             missing = exc.name or str(exc)
@@ -934,7 +941,7 @@ def build_summary_rows(
             }
         )
     latency_cycles = level1_by_name.get("latency", "")
-    area_proxy = level1_by_name.get("area", "")
+    physical_area_mm2 = level1_by_name.get("area", "")
     rows: list[dict[str, Any]] = []
     for solution in level2_solutions:
         workload_latency_s = solution.get("workload_latency_s")
@@ -963,7 +970,7 @@ def build_summary_rows(
                 "level1_latency_cycles": latency_cycles,
                 "level1_latency": level1_by_name.get("latency", ""),
                 "level1_energy": level1_by_name.get("energy", ""),
-                "level1_area_proxy": area_proxy,
+                "level1_physical_area_mm2": physical_area_mm2,
                 "zigzag_mapping_objective": (
                     ""
                     if level1_evaluation is None

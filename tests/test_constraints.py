@@ -29,7 +29,15 @@ from examples.objective_sweep import (
     objective_cases,
 )
 from talos.architecture.abstract_accelerator import AbstractAccelerator, AbstractComponent
-from talos.architecture.genome import GENOME_LENGTH, GENOME_SPEC, decode_genome
+from talos.architecture.genome import (
+    GB_BW_OPTIONS,
+    GB_SIZE_OPTIONS,
+    GENOME_LENGTH,
+    GENOME_SPEC,
+    RF_BW_OPTIONS,
+    RF_SIZE_OPTIONS,
+    decode_genome,
+)
 from talos.architecture.level1_importer import abstract_accelerator_from_level1_config
 from talos.constraints import (
     UserConstraints,
@@ -37,6 +45,7 @@ from talos.constraints import (
     estimated_inferences_per_second,
 )
 from talos.evaluation.workload_activity import LayerActivity, WorkloadActivityProfile
+from talos.evaluation.area_calibration import Level1AreaCalibration
 from talos.evaluation.zigzag_evaluator import EvaluationResult
 from talos.ga.pymoo_runner import TalosPymooProblem, _build_nsga2
 from talos.ip import IPBlock, IPPool, PowerCharacterization
@@ -48,6 +57,20 @@ from talos.level2.runner import _build_solution_rows
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SYNTHETIC_POOL_PATH = REPO_ROOT / "configs" / "ip_pool_synthetic_65nm.yaml"
+
+
+AREA_CALIBRATION = Level1AreaCalibration(
+    pe_rf_area_mm2={
+        (size, bandwidth): 1.0
+        for size in RF_SIZE_OPTIONS
+        for bandwidth in RF_BW_OPTIONS
+    },
+    gb_area_mm2={
+        (size, bandwidth): 1.0
+        for size in GB_SIZE_OPTIONS
+        for bandwidth in GB_BW_OPTIONS
+    },
+)
 
 
 class FakeAdapter:
@@ -183,6 +206,7 @@ class UserConstraintsTests(unittest.TestCase):
         problem = TalosPymooProblem(
             workload_path="unused.onnx",
             objective_names=["latency"],
+            area_calibration=AREA_CALIBRATION,
             adapter=FakeAdapter(
                 EvaluationResult(latency=10.0, energy=1.0, area=1.0, valid=True)
             ),
@@ -199,6 +223,7 @@ class UserConstraintsTests(unittest.TestCase):
         problem = TalosPymooProblem(
             workload_path="unused.onnx",
             objective_names=["energy"],
+            area_calibration=AREA_CALIBRATION,
             adapter=FakeAdapter(
                 EvaluationResult(latency=1.0, energy=1.0, area=1.0, valid=True)
             ),
@@ -345,7 +370,7 @@ class UserConstraintsTests(unittest.TestCase):
 
         self.assertEqual(rows[0]["level1_latency"], 10.0)
         self.assertEqual(rows[0]["level1_energy"], 20.0)
-        self.assertEqual(rows[0]["level1_area_proxy"], 30.0)
+        self.assertEqual(rows[0]["level1_physical_area_mm2"], 30.0)
         self.assertEqual(rows[0]["workload_throughput_ips"], "")
 
     def test_level1_selection_skips_physically_infeasible_candidates(self) -> None:
@@ -652,6 +677,10 @@ class UserConstraintsTests(unittest.TestCase):
                         "talos.evaluation.cacti_costs.characterize_level1_energy",
                         return_value=object(),
                     ) as characterize,
+                    patch(
+                        "talos.evaluation.area_calibration.characterize_level1_area",
+                        return_value=AREA_CALIBRATION,
+                    ),
                     patch(
                         "talos.evaluation.cacti_costs.calibrate_synthetic_dram_ip",
                         return_value=dram,

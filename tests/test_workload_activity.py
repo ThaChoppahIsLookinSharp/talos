@@ -20,6 +20,7 @@ from talos.architecture.genome import (
     default_genome,
     decode_genome,
 )
+from talos.evaluation.area_calibration import Level1AreaCalibration
 from talos.evaluation.cacti_costs import CactiMemoryCost, Level1EnergyCalibration
 from talos.evaluation.workload_activity import (
     LayerActivity,
@@ -68,6 +69,24 @@ def energy_calibration() -> Level1EnergyCalibration:
     )
 
 
+def area_calibration(
+    pe_rf_area_mm2: float = 1.0,
+    gb_area_mm2: float = 10.0,
+) -> Level1AreaCalibration:
+    return Level1AreaCalibration(
+        pe_rf_area_mm2={
+            (size, bandwidth): pe_rf_area_mm2
+            for size in RF_SIZE_OPTIONS
+            for bandwidth in RF_BW_OPTIONS
+        },
+        gb_area_mm2={
+            (size, bandwidth): gb_area_mm2
+            for size in GB_SIZE_OPTIONS
+            for bandwidth in GB_BW_OPTIONS
+        },
+    )
+
+
 class _MemoryOperandLinks:
     def layer_to_mem_op(self, layer_operand: str) -> str:
         return {"I": "I1", "W": "I2", "O": "O"}[layer_operand]
@@ -108,6 +127,7 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
                 workload="unused.onnx",
                 workdir=tmp,
                 energy_calibration=energy_calibration(),
+                area_calibration=area_calibration(),
             )
             expected = [
                 EvaluationResult(1, 2, 3, True),
@@ -187,6 +207,7 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
                 dram_accesses_per_cycle=2,
                 dram_power_model=model,
                 energy_calibration=energy_calibration(),
+                area_calibration=area_calibration(),
             )
             config = decode_genome(default_genome())
             dram = evaluator._build_accelerator(config)["memories"]["dram"]
@@ -196,8 +217,8 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
         self.assertEqual(dram["w_cost"], 6_400)
         self.assertEqual(evaluator._dram_idle_energy_pj(100), 1_000_000)
 
-    def test_area_proxy_counts_three_rfs_and_replicated_global_buffers(self) -> None:
-        evaluator = ZigZagEvaluator.__new__(ZigZagEvaluator)
+    def test_physical_area_counts_replicated_global_buffers(self) -> None:
+        calibration = area_calibration(pe_rf_area_mm2=2, gb_area_mm2=3)
         base = {
             "pe_x": 4,
             "pe_y": 8,
@@ -215,16 +236,33 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
             (["D1", "D2"], 1),
         ):
             with self.subTest(served_dimensions=served_dimensions):
-                area = evaluator._estimate_area(
+                area = calibration.area_mm2(
                     ArchitectureConfig(
                         **base,
                         gb_served_dims=served_dimensions,
                     )
                 )
-                self.assertEqual(
-                    area,
-                    32 + 3 * 32 * 64 * 0.001 + gb_count * 8192 * 0.0005,
-                )
+                self.assertEqual(area, 32 * 2 + gb_count * 3)
+
+    def test_incompatible_physical_area_skips_zigzag(self) -> None:
+        calibration = area_calibration()
+        config = decode_genome(default_genome())
+        calibration.gb_area_mm2[
+            (config.gb_size_bits, config.gb_bw_bits)
+        ] = None
+        with tempfile.TemporaryDirectory() as tmp:
+            evaluator = ZigZagEvaluator(
+                workload="unused.onnx",
+                workdir=tmp,
+                energy_calibration=energy_calibration(),
+                area_calibration=calibration,
+            )
+            with patch.object(evaluator, "_run_zigzag") as run_zigzag:
+                result = evaluator.evaluate(default_genome())
+
+        self.assertFalse(result.valid)
+        self.assertIn("No physical IP combination", result.error_message or "")
+        run_zigzag.assert_not_called()
 
     def test_onchip_idle_formula(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -232,6 +270,7 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
                 workload="unused.onnx",
                 workdir=tmp,
                 energy_calibration=energy_calibration(),
+                area_calibration=area_calibration(),
             )
             config = ArchitectureConfig(
                 pe_x=4,
@@ -301,6 +340,7 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
                 workload="unused.onnx",
                 workdir=tmp,
                 energy_calibration=energy_calibration(),
+                area_calibration=area_calibration(),
             )
             evaluator._onnx_workload = helper.make_model(
                 helper.make_graph([], "test", [], [])

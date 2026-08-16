@@ -28,6 +28,7 @@ from talos.architecture.genome import (
     gene_names,
 )
 from talos.constraints import UserConstraints
+from talos.evaluation.area_calibration import Level1AreaCalibration
 from talos.evaluation.cacti_costs import (
     Level1EnergyCalibration,
     characterize_level1_energy,
@@ -80,6 +81,7 @@ class TalosPymooProblem(ElementwiseProblem):
         self,
         workload_path: str,
         objective_names: list[str],
+        area_calibration: Level1AreaCalibration,
         adapter: ObjectiveAdapter | None = None,
         debug: bool = False,
         elementwise_runner: Any | None = None,
@@ -106,6 +108,7 @@ class TalosPymooProblem(ElementwiseProblem):
         self.dram_accesses_per_cycle = dram_accesses_per_cycle
         self.dram_power_model = dram_power_model
         self.energy_calibration = energy_calibration
+        self.area_calibration = area_calibration
         self._adapter = adapter
 
         bounds = gene_bounds()
@@ -139,6 +142,7 @@ class TalosPymooProblem(ElementwiseProblem):
                 dram_accesses_per_cycle=self.dram_accesses_per_cycle,
                 dram_power_model=self.dram_power_model,
                 energy_calibration=self.energy_calibration,
+                area_calibration=self.area_calibration,
             )
             self._adapter = ObjectiveAdapter(evaluator, verbose=self.debug)
         return self._adapter
@@ -187,6 +191,7 @@ class TalosPymooProblem(ElementwiseProblem):
 
 def run_nsga2_pymoo(
     workload_path: str,
+    area_calibration: Level1AreaCalibration,
     objective_names: list[str] | None = None,
     pop_size: int = 6,
     n_gen: int = 2,
@@ -229,6 +234,7 @@ def run_nsga2_pymoo(
         dram_accesses_per_cycle=dram_accesses_per_cycle,
         dram_power_model=dram_power_model,
         energy_calibration=energy_calibration,
+        area_calibration=area_calibration,
     )
     calibration_path = write_energy_calibration(
         output_dir / "energy_calibration.json",
@@ -259,6 +265,7 @@ def run_nsga2_pymoo(
                 dram_accesses_per_cycle=dram_accesses_per_cycle,
                 dram_power_model=dram_power_model,
                 energy_calibration=energy_calibration,
+                area_calibration=area_calibration,
             )
         else:
             problem = TalosPymooProblem(
@@ -274,6 +281,7 @@ def run_nsga2_pymoo(
                 dram_accesses_per_cycle=dram_accesses_per_cycle,
                 dram_power_model=dram_power_model,
                 energy_calibration=energy_calibration,
+                area_calibration=area_calibration,
             )
 
         algorithm = _build_nsga2(pop_size)
@@ -387,8 +395,7 @@ def _write_results_csv(
         "latency_cycles",
         "latency",
         "energy",
-        "area_proxy",
-        "area",
+        "physical_area_mm2",
         "valid",
         "constraints_satisfied",
         "constraint_violations",
@@ -440,8 +447,7 @@ def _write_results_csv(
                 "latency_cycles": latency,
                 "latency": latency,
                 "energy": energy,
-                "area_proxy": area,
-                "area": area,
+                "physical_area_mm2": area,
                 "valid": valid,
                 "constraints_satisfied": valid,
                 "constraint_violations": json.dumps(constraint_violations),
@@ -521,6 +527,12 @@ def main() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description="Run a small pymoo NSGA-II demo.")
     parser.add_argument(
+        "--ip-pool",
+        type=Path,
+        required=True,
+        help="Path to the characterized IP pool used for Level 1 area.",
+    )
+    parser.add_argument(
         "--workload",
         type=Path,
         default=repo_root / "workloads" / "alexnet.onnx",
@@ -528,14 +540,25 @@ def main() -> None:
     )
     args = parser.parse_args()
     workload = args.workload.expanduser().resolve()
+    from talos.evaluation.area_calibration import characterize_level1_area
+    from talos.evaluation.cacti_costs import characterize_level1_energy
+    from talos.ip import IPPool
+
+    ip_pool = IPPool.from_yaml(args.ip_pool.expanduser().resolve())
+    area_calibration = characterize_level1_area(ip_pool)
+    energy_calibration = characterize_level1_energy(
+        technology_nm=ip_pool.technology_nm,
+    )
 
     result = run_nsga2_pymoo(
         workload_path=str(workload),
+        area_calibration=area_calibration,
         objective_names=DEFAULT_OBJECTIVES,
         pop_size=6,
         n_gen=2,
         seed=1,
         n_workers=1,
+        energy_calibration=energy_calibration,
     )
 
     solution_count = 0 if result.X is None else len(np.atleast_2d(result.X))
