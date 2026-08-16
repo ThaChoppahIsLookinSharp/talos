@@ -13,14 +13,20 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from talos.constraints import UserConstraints
-from talos.evaluation.workload_activity import WorkloadActivityProfile
+from talos.evaluation.workload_activity import (
+    LayerActivity,
+    WorkloadActivityProfile,
+)
 from talos.evaluation.zigzag_evaluator import (
     EvaluationResult,
     mapping_objective_for_level1,
 )
 
 
-LEVEL1_OBJECTIVES = ["latency", "energy", "area"]
+# Level 1 is a pool-independent screening stage, not the physical optimizer.
+# Keep all three proxy dimensions so no Level-2 objective gets discarded early.
+LEVEL1_SCREENING_OBJECTIVES = ["energy", "latency", "area"]
+LEVEL1_OBJECTIVES = LEVEL1_SCREENING_OBJECTIVES
 LEVEL2_OBJECTIVES = ["area", "energy", "workload_latency_s"]
 SUPPORTED_LEVEL1_OBJECTIVES = ["latency", "energy", "area", "edp", "eap", "alp"]
 SUPPORTED_LEVEL2_OBJECTIVES = [
@@ -174,6 +180,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         nargs="+",
         choices=SUPPORTED_LEVEL1_OBJECTIVES,
         default=LEVEL1_OBJECTIVES,
+        help="Deprecated: Level 1 always screens the energy-latency-area Pareto set.",
     )
     parser.add_argument("--level2-pop-size", type=int, default=4)
     parser.add_argument("--level2-generations", type=int, default=1)
@@ -194,18 +201,37 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=100_000,
     )
     parser.add_argument("--max-architectures", type=int, default=1)
+    parser.add_argument(
+        "--level1-handoff",
+        type=Path,
+        help="Reuse candidates and ZigZag profiles written by --level1-only.",
+    )
+    parser.add_argument(
+        "--level1-only",
+        action="store_true",
+        help="Run Level 1, write a reusable handoff, then stop before Level 2.",
+    )
+    parser.add_argument(
+        "--level1-handoff-output",
+        type=Path,
+        help="Output path for --level1-only (defaults to results-dir/level1_handoff.json).",
+    )
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--max-area-mm2", type=float, default=None)
     parser.add_argument("--max-power-w", type=float, default=None)
     parser.add_argument("--max-latency-cycles", type=float, default=None)
-    parser.add_argument("--min-frequency-mhz", type=float, default=None)
+    parser.add_argument(
+        "--min-frequency-mhz", "--min-freq", dest="min_frequency_mhz",
+        type=float, default=None,
+    )
     return parser.parse_args(argv)
 
 
 def main() -> int:
     args = parse_args()
+    level1_screening_objectives = list(LEVEL1_SCREENING_OBJECTIVES)
 
     workload = Path(args.workload).expanduser().resolve()
     ip_pool_path = Path(args.ip_pool).expanduser().resolve()
@@ -215,6 +241,7 @@ def main() -> int:
     print(f"Workload: {workload}")
     print(f"IP pool: {ip_pool_path}")
     print(f"Results dir: {results_dir}")
+    print("Level 1 screening Pareto: energy, latency, area")
     print()
     sys.stdout.flush()
 
@@ -226,6 +253,9 @@ def main() -> int:
         return 2
     if args.max_architectures < 1:
         print("ERROR: --max-architectures must be at least 1.", file=sys.stderr)
+        return 2
+    if args.level1_only and args.level1_handoff is not None:
+        print("ERROR: --level1-only cannot reuse --level1-handoff.", file=sys.stderr)
         return 2
 
     constraints = UserConstraints(
@@ -296,97 +326,113 @@ def main() -> int:
     dram_accesses_per_cycle = float(
         (dram_ip.metadata or {})["accesses_per_cycle"]
     )
-    activity_evaluator = ZigZagEvaluator(
-        workload=str(workload),
-        opt=mapping_objective_for_level1(args.level1_objectives),
-        debug=args.debug,
-        workdir=str(results_dir / "level1_profiles"),
-        lpf_limit=1,
-        nb_spatial_mappings_generated=1,
-        dram_bandwidth_bits=dram_ip.bandwidth_bits,
-        dram_accesses_per_cycle=dram_accesses_per_cycle,
-        dram_power_model=dram_ip.power_model,
-        energy_calibration=energy_calibration,
-    )
-
-    print("[Level 1] Running small architecture exploration...")
-    try:
-        level1_result = run_nsga2_pymoo(
-            workload_path=str(workload),
-            objective_names=args.level1_objectives,
-            pop_size=args.level1_pop_size,
-            n_gen=args.level1_generations,
-            seed=args.seed,
-            n_workers=args.workers,
+    if args.level1_handoff is not None:
+        try:
+            candidates, level1_csv_path = load_level1_handoff(
+                args.level1_handoff,
+                decode_genome=decode_genome,
+                abstract_accelerator_from_level1_config=(
+                    abstract_accelerator_from_level1_config
+                ),
+            )
+        except Exception as exc:
+            print(f"ERROR: unable to load Level 1 handoff: {exc}", file=sys.stderr)
+            return 2
+        flow_failures: list[str] = []
+        print(
+            f"[Level 1] Reusing {len(candidates)} profiled architecture(s) from "
+            f"{args.level1_handoff}."
+        )
+    else:
+        activity_evaluator = ZigZagEvaluator(
+            workload=str(workload),
+            opt=mapping_objective_for_level1(level1_screening_objectives),
             debug=args.debug,
-            save_csv=True,
-            results_dir=str(results_dir / "level1"),
-            zigzag_lpf_limit=1,
-            zigzag_spatial_mappings=1,
-            constraints=constraints,
+            workdir=str(results_dir / "level1_profiles"),
+            lpf_limit=1,
+            nb_spatial_mappings_generated=1,
             dram_bandwidth_bits=dram_ip.bandwidth_bits,
             dram_accesses_per_cycle=dram_accesses_per_cycle,
             dram_power_model=dram_ip.power_model,
             energy_calibration=energy_calibration,
         )
-    except ModuleNotFoundError as exc:
-        missing = exc.name or str(exc)
-        print(
-            "ERROR: missing dependency while running Level 1: "
-            f"{missing}. Install the project dependencies, for example with "
-            "`python -m pip install -r requirements.txt`. pymoo is required "
-            "for this example.",
-            file=sys.stderr,
-        )
-        return 2
-
-    level1_genomes, level1_objectives = iter_level1_candidates(level1_result)
-    level1_csv_path = _level1_csv_path(level1_result)
-
-    print(
-        f"[Level 1] Considering {len(level1_genomes)} Pareto/final-population "
-        "candidate row(s)."
-    )
-    if level1_csv_path:
-        print(f"[Level 1] CSV: {level1_csv_path}")
-    if not level1_genomes:
-        summary_path = write_summary_csv(results_dir, [])
-        print("[Level 1] No candidate architectures were returned; stopping.")
-        print(f"Summary CSV written to: {summary_path}")
-        return 0
-
-    flow_failures: list[str] = []
-    activity_workers = min(
-        args.workers,
-        args.max_architectures,
-    )
-    print(
-        "[Level 1] Profiling up to "
-        f"{args.max_architectures} architecture(s) with "
-        f"{activity_workers} ZigZag worker(s)."
-    )
-    candidates = select_level1_candidates(
-        level1_genomes=level1_genomes,
-        level1_objectives=level1_objectives,
-        level1_objective_names=args.level1_objectives,
-        max_architectures=args.max_architectures,
-        pool=pool,
-        decode_genome=decode_genome,
-        gene_bounds=gene_bounds,
-        abstract_accelerator_from_level1_config=(
-            abstract_accelerator_from_level1_config
-        ),
-        constraints=constraints,
-        evaluate_activity=activity_evaluator.evaluate,
-        evaluate_activities=lambda genomes: (
-            activity_evaluator.evaluate_many(
-                genomes,
+        print("[Level 1] Running architecture exploration...")
+        try:
+            level1_result = run_nsga2_pymoo(
+                workload_path=str(workload),
+                objective_names=level1_screening_objectives,
+                pop_size=args.level1_pop_size,
+                n_gen=args.level1_generations,
+                seed=args.seed,
                 n_workers=args.workers,
+                debug=args.debug,
+                save_csv=True,
+                results_dir=str(results_dir / "level1"),
+                zigzag_lpf_limit=1,
+                zigzag_spatial_mappings=1,
+                constraints=constraints,
+                dram_bandwidth_bits=dram_ip.bandwidth_bits,
+                dram_accesses_per_cycle=dram_accesses_per_cycle,
+                dram_power_model=dram_ip.power_model,
+                energy_calibration=energy_calibration,
             )
-        ),
-        exhaustive_max_combinations=args.level2_exhaustive_max_combinations,
-        failures=flow_failures,
-    )
+        except ModuleNotFoundError as exc:
+            missing = exc.name or str(exc)
+            print(
+                "ERROR: missing dependency while running Level 1: "
+                f"{missing}. Install the project dependencies, for example with "
+                "`python -m pip install -r requirements.txt`. pymoo is required "
+                "for this example.",
+                file=sys.stderr,
+            )
+            return 2
+
+        level1_genomes, level1_objective_values = iter_level1_candidates(level1_result)
+        level1_csv_path = _level1_csv_path(level1_result)
+        print(
+            f"[Level 1] Considering {len(level1_genomes)} Pareto/final-population "
+            "candidate row(s)."
+        )
+        if level1_csv_path:
+            print(f"[Level 1] CSV: {level1_csv_path}")
+        if not level1_genomes:
+            summary_path = write_summary_csv(results_dir, [])
+            print("[Level 1] No candidate architectures were returned; stopping.")
+            print(f"Summary CSV written to: {summary_path}")
+            return 0
+
+        flow_failures = []
+        activity_workers = min(args.workers, args.max_architectures)
+        print(
+            "[Level 1] Profiling up to "
+            f"{args.max_architectures} architecture(s) with "
+            f"{activity_workers} ZigZag worker(s)."
+        )
+        candidates = select_level1_candidates(
+            level1_genomes=level1_genomes,
+            level1_objectives=level1_objective_values,
+            level1_objective_names=level1_screening_objectives,
+            max_architectures=args.max_architectures,
+            pool=pool,
+            decode_genome=decode_genome,
+            gene_bounds=gene_bounds,
+            abstract_accelerator_from_level1_config=(
+                abstract_accelerator_from_level1_config
+            ),
+            constraints=constraints,
+            evaluate_activity=activity_evaluator.evaluate,
+            evaluate_activities=lambda genomes: activity_evaluator.evaluate_many(
+                genomes, n_workers=args.workers
+            ),
+            exhaustive_max_combinations=args.level2_exhaustive_max_combinations,
+            failures=flow_failures,
+        )
+
+        if args.level1_only:
+            handoff_path = args.level1_handoff_output or results_dir / "level1_handoff.json"
+            write_level1_handoff(handoff_path, candidates, level1_csv_path)
+            print(f"Level 1 handoff written to: {handoff_path}")
+            return 0
     print(
         f"[Level 1] Passing {len(candidates)} architecture(s) to Level 2."
     )
@@ -449,7 +495,7 @@ def main() -> int:
                 level1_discrete_genome=candidate.discrete_genome,
                 level1_architecture_config=asdict(candidate.architecture_config),
                 level1_objective_values=candidate.objective_values,
-                level1_objective_names=args.level1_objectives,
+                level1_objective_names=level1_screening_objectives,
                 level2_objective_names=args.level2_objectives,
                 level1_csv_path=level1_csv_path,
                 level2_csv_path=level2_result.csv_path,
@@ -474,6 +520,75 @@ def _level1_csv_path(result: Any) -> str:
     talos_artifacts = getattr(result, "talos", None)
     csv_path = getattr(talos_artifacts, "csv_path", None)
     return "" if csv_path is None else str(csv_path)
+
+
+def write_level1_handoff(
+    path: Path,
+    candidates: list[Level1Candidate],
+    level1_csv_path: str,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "level1_objective_names": LEVEL1_SCREENING_OBJECTIVES,
+        "level1_csv_path": level1_csv_path,
+        "candidates": [
+            {
+                "source_index": candidate.source_index,
+                "raw_genome": candidate.raw_genome,
+                "objective_values": candidate.objective_values,
+                "discrete_genome": candidate.discrete_genome,
+                "mapping_objective": (
+                    None
+                    if candidate.evaluation is None
+                    else candidate.evaluation.mapping_objective
+                ),
+                "activity_profile": {
+                    "layers": [asdict(layer) for layer in candidate.activity_profile.layers]
+                },
+            }
+            for candidate in candidates
+            if candidate.activity_profile is not None
+        ],
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def load_level1_handoff(
+    path: Path,
+    *,
+    decode_genome: Any,
+    abstract_accelerator_from_level1_config: Any,
+) -> tuple[list[Level1Candidate], str]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("level1_objective_names") != LEVEL1_SCREENING_OBJECTIVES:
+        raise ValueError("handoff does not contain the fixed Level 1 Pareto objectives")
+    candidates: list[Level1Candidate] = []
+    for item in payload.get("candidates", []):
+        profile = WorkloadActivityProfile(
+            layers=tuple(LayerActivity(**layer) for layer in item["activity_profile"]["layers"])
+        )
+        genome = [float(value) for value in item["raw_genome"]]
+        config = decode_genome(genome)
+        candidates.append(
+            Level1Candidate(
+                source_index=int(item["source_index"]),
+                raw_genome=genome,
+                objective_values=[float(value) for value in item["objective_values"]],
+                discrete_genome=[int(value) for value in item["discrete_genome"]],
+                architecture_config=config,
+                accelerator=abstract_accelerator_from_level1_config(config),
+                activity_profile=profile,
+                evaluation=EvaluationResult(
+                    latency=profile.total_latency_cycles,
+                    energy=float("nan"),
+                    area=float("nan"),
+                    valid=True,
+                    activity_profile=profile,
+                    mapping_objective=item.get("mapping_objective"),
+                ),
+            )
+        )
+    return candidates, str(payload.get("level1_csv_path", ""))
 
 
 def select_level1_candidates(

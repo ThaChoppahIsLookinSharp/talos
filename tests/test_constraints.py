@@ -12,13 +12,16 @@ from pymoo.optimize import minimize
 
 from examples.constraint_sweep import build_command, build_parser, sweep_cases
 from examples.full_flow_example import (
+    LEVEL1_SCREENING_OBJECTIVES,
     Level1Candidate,
     SUMMARY_FIELDNAMES,
     build_summary_rows,
     iter_level1_candidates,
     main as full_flow_main,
+    load_level1_handoff,
     parse_args,
     select_level1_candidates,
+    write_level1_handoff,
 )
 from examples.objective_sweep import (
     build_command as build_objective_sweep_command,
@@ -90,6 +93,52 @@ def implemented_ip(
 
 
 class UserConstraintsTests(unittest.TestCase):
+    def test_level1_handoff_round_trip_preserves_profile(self) -> None:
+        profile = WorkloadActivityProfile(
+            layers=(
+                LayerActivity(
+                    layer_id="layer",
+                    latency_cycles=10,
+                    mac_count=5,
+                    spatially_used_pes=1,
+                    memory_accesses={"dram": 2},
+                ),
+            )
+        )
+        genome = [0] * GENOME_LENGTH
+        config = decode_genome(genome)
+        candidate = Level1Candidate(
+            source_index=3,
+            raw_genome=genome,
+            objective_values=[1, 2, 3],
+            discrete_genome=genome,
+            architecture_config=config,
+            accelerator=abstract_accelerator_from_level1_config(config),
+            activity_profile=profile,
+            evaluation=EvaluationResult(
+                latency=10,
+                energy=2,
+                area=3,
+                valid=True,
+                activity_profile=profile,
+                mapping_objective="EDP",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "handoff.json"
+            write_level1_handoff(path, [candidate], "level1.csv")
+            restored, csv_path = load_level1_handoff(
+                path,
+                decode_genome=decode_genome,
+                abstract_accelerator_from_level1_config=(
+                    abstract_accelerator_from_level1_config
+                ),
+            )
+
+        self.assertEqual(csv_path, "level1.csv")
+        self.assertEqual(restored[0].raw_genome, genome)
+        self.assertEqual(restored[0].activity_profile, profile)
+
     def test_full_flow_can_fill_pareto_set_from_feasible_final_population(self) -> None:
         population = SimpleNamespace(
             get=lambda name: {
@@ -611,7 +660,7 @@ class UserConstraintsTests(unittest.TestCase):
                     patch(
                         "talos.ga.pymoo_runner.run_nsga2_pymoo",
                         return_value=level1_result,
-                    ),
+                    ) as run_level1,
                     patch("talos.evaluation.zigzag_evaluator.ZigZagEvaluator"),
                     patch(
                         "examples.full_flow_example.select_level1_candidates",
@@ -621,6 +670,10 @@ class UserConstraintsTests(unittest.TestCase):
                 ):
                     self.assertEqual(full_flow_main(), expected_code)
                     characterize.assert_called_once_with(technology_nm=65)
+                    self.assertEqual(
+                        run_level1.call_args.kwargs["objective_names"],
+                        LEVEL1_SCREENING_OBJECTIVES,
+                    )
 
     def test_constraint_sweep_builds_seven_worker_aware_commands(self) -> None:
         cases = sweep_cases()
@@ -669,7 +722,7 @@ class UserConstraintsTests(unittest.TestCase):
         )
         self.assertEqual(
             cases[-1].level1_objectives,
-            ["energy", "area", "latency"],
+            ["energy", "latency", "area"],
         )
         self.assertEqual(
             cases[-1].level2_objectives,

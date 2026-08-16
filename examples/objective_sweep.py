@@ -17,10 +17,11 @@ DEFAULT_WORKLOAD = REPO_ROOT / "workloads" / "alexnet.onnx"
 FULL_FLOW_SCRIPT = REPO_ROOT / "examples" / "full_flow_example.py"
 
 OBJECTIVE_MAP = {
-    "energy": (["energy"], ["energy"]),
-    "area": (["area"], ["area"]),
-    "performance": (["latency"], ["workload_latency_s"]),
+    "energy": "energy",
+    "area": "area",
+    "performance": "workload_latency_s",
 }
+LEVEL1_SCREENING_OBJECTIVES = ["energy", "latency", "area"]
 OBJECTIVE_CASES = [
     ("energy", ["energy"]),
     ("area", ["area"]),
@@ -42,16 +43,13 @@ class ObjectiveCase:
 def objective_cases() -> list[ObjectiveCase]:
     cases = []
     for name, objective_names in OBJECTIVE_CASES:
-        level1_objectives: list[str] = []
         level2_objectives: list[str] = []
         for objective_name in objective_names:
-            level1_names, level2_names = OBJECTIVE_MAP[objective_name]
-            level1_objectives.extend(level1_names)
-            level2_objectives.extend(level2_names)
+            level2_objectives.append(OBJECTIVE_MAP[objective_name])
         cases.append(
             ObjectiveCase(
                 name=name,
-                level1_objectives=level1_objectives,
+                level1_objectives=list(LEVEL1_SCREENING_OBJECTIVES),
                 level2_objectives=level2_objectives,
             )
         )
