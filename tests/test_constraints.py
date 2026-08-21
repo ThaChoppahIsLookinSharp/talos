@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import csv
+import importlib.util
 from itertools import product
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 import tempfile
 import unittest
@@ -10,6 +13,7 @@ from unittest.mock import patch
 import numpy as np
 from pymoo.optimize import minimize
 
+import examples.full_flow_example as full_flow
 from examples.constraint_sweep import build_command, build_parser, sweep_cases
 from examples.full_flow_example import (
     LEVEL1_SCREENING_OBJECTIVES,
@@ -20,7 +24,9 @@ from examples.full_flow_example import (
     main as full_flow_main,
     load_level1_handoff,
     parse_args,
+    rank_full_flow_rows,
     select_level1_candidates,
+    write_summary_csv,
     write_level1_handoff,
 )
 from examples.objective_sweep import (
@@ -52,6 +58,7 @@ from talos.ip import IPBlock, IPPool, PowerCharacterization
 from talos.level2 import Level2Evaluator
 from talos.level2.genome import ImplementedAccelerator, ImplementedComponent
 from talos.level2.problem import Level2PymooProblem
+from talos.level2.exhaustive_runner import _assign_balanced_scores
 from talos.level2.runner import _build_solution_rows
 
 
@@ -71,6 +78,21 @@ AREA_CALIBRATION = Level1AreaCalibration(
         for bandwidth in GB_BW_OPTIONS
     },
 )
+
+
+def summary_ranking_row(
+    architecture_index: int,
+    solution_index: int,
+    objective_values: list[float],
+) -> dict[str, object]:
+    return {
+        "architecture_index": architecture_index,
+        "level2_solution_index": solution_index,
+        "level2_objective_values": objective_values,
+        "level2_global_balanced_score": None,
+        "level2_valid": True,
+        "constraints_satisfied": True,
+    }
 
 
 class FakeAdapter:
@@ -372,6 +394,102 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertEqual(rows[0]["level1_energy"], 20.0)
         self.assertEqual(rows[0]["level1_physical_area_mm2"], 30.0)
         self.assertEqual(rows[0]["workload_throughput_ips"], "")
+
+    def test_full_flow_uses_one_global_score_across_architectures(self) -> None:
+        local_a = [
+            {"objective_values": [1, 10]},
+            {"objective_values": [3, 30]},
+        ]
+        local_b = [
+            {"objective_values": [10, 100]},
+            {"objective_values": [30, 300]},
+        ]
+        _assign_balanced_scores(local_a)
+        _assign_balanced_scores(local_b)
+        self.assertEqual(local_a[0]["balanced_score"], 0.0)
+        self.assertEqual(local_b[0]["balanced_score"], 0.0)
+
+        rows = [
+            summary_ranking_row(2, 1, [30, 300]),
+            summary_ranking_row(1, 1, [3, 30]),
+            summary_ranking_row(2, 0, [10, 100]),
+            summary_ranking_row(1, 0, [1, 10]),
+        ]
+        rank_full_flow_rows(rows, ["area", "workload_latency_s"])
+
+        self.assertEqual(
+            (rows[0]["architecture_index"], rows[0]["level2_solution_index"]),
+            (1, 0),
+        )
+        self.assertEqual(rows[0]["level2_global_balanced_score"], 0.0)
+        self.assertGreater(rows[2]["level2_global_balanced_score"], 0.0)
+        self.assertLess(
+            rows[1]["level2_global_balanced_score"],
+            rows[2]["level2_global_balanced_score"],
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_summary_csv(Path(tmp), rows)
+            with path.open(newline="", encoding="utf-8") as handle:
+                written = list(csv.DictReader(handle))
+        self.assertIn("level2_global_balanced_score", written[0])
+        self.assertEqual(written[0]["level2_global_balanced_score"], "0.0")
+
+    def test_full_flow_single_objective_orders_raw_values_without_score(self) -> None:
+        rows = [
+            summary_ranking_row(2, 0, [20]),
+            summary_ranking_row(1, 0, [10]),
+        ]
+
+        rank_full_flow_rows(rows, ["energy"])
+
+        self.assertEqual(rows[0]["level2_objective_values"], [10])
+        self.assertTrue(
+            all(row["level2_global_balanced_score"] is None for row in rows)
+        )
+
+    def test_legacy_flow_delegates_to_shared_full_flow_ranking(self) -> None:
+        path = REPO_ROOT / "examples" / "full_flow_legacy_objectives.py"
+        spec = importlib.util.spec_from_file_location("legacy_full_flow_test", path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        original_objectives = full_flow.LEVEL1_SCREENING_OBJECTIVES
+        try:
+            with patch.dict(sys.modules, {"full_flow_example": full_flow}):
+                spec.loader.exec_module(module)
+            with (
+                patch.object(
+                    full_flow,
+                    "parse_args",
+                    return_value=SimpleNamespace(
+                        level1_objectives=["energy", "area"]
+                    ),
+                ),
+                patch.object(full_flow, "main", return_value=7) as shared_main,
+            ):
+                self.assertEqual(module.main(), 7)
+                shared_main.assert_called_once_with()
+                self.assertEqual(
+                    full_flow.LEVEL1_SCREENING_OBJECTIVES,
+                    ["energy", "area"],
+                )
+                self.assertIs(module.full_flow.rank_full_flow_rows, rank_full_flow_rows)
+        finally:
+            full_flow.LEVEL1_SCREENING_OBJECTIVES = original_objectives
+
+        first_run = [
+            summary_ranking_row(0, 0, [1, 10]),
+            summary_ranking_row(1, 0, [2, 20]),
+        ]
+        second_run = [
+            summary_ranking_row(0, 0, [100, 1000]),
+            summary_ranking_row(1, 0, [200, 2000]),
+        ]
+        rank_full_flow_rows(first_run, ["energy", "area"])
+        rank_full_flow_rows(second_run, ["energy", "area"])
+        self.assertEqual(first_run[0]["level2_global_balanced_score"], 0.0)
+        self.assertEqual(second_run[0]["level2_global_balanced_score"], 0.0)
 
     def test_level1_selection_skips_physically_infeasible_candidates(self) -> None:
         pool = IPPool.from_yaml(SYNTHETIC_POOL_PATH)

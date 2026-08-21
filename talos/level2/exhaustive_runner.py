@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import math
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +14,7 @@ from talos.level2.runner import (
     _evaluate_solution,
     _write_solutions_csv,
 )
+from talos.level2.scoring import augmented_tchebycheff_scores
 
 
 @dataclass(frozen=True)
@@ -103,27 +103,10 @@ def run_level2_exhaustive(
 
 
 def _assign_balanced_scores(rows: list[dict[str, Any]]) -> None:
-    if not rows:
-        return
-
-    objective_count = len(rows[0]["objective_values"])
-    minimums = [
-        min(float(row["objective_values"][index]) for row in rows)
-        for index in range(objective_count)
-    ]
-    maximums = [
-        max(float(row["objective_values"][index]) for row in rows)
-        for index in range(objective_count)
-    ]
-
-    for row in rows:
-        normalized_squares = [
-            0.0
-            if maximum == minimum
-            else (
-                (float(row["objective_values"][index]) - minimum)
-                / (maximum - minimum)
-            ) ** 2
-            for index, (minimum, maximum) in enumerate(zip(minimums, maximums))
-        ]
-        row["balanced_score"] = math.sqrt(sum(normalized_squares))
+    # This ideal point is local to one architecture. Such scores are not
+    # comparable across architectures; the full flow recomputes a global score.
+    scores = augmented_tchebycheff_scores(
+        [row["objective_values"] for row in rows]
+    )
+    for row, score in zip(rows, scores, strict=True):
+        row["balanced_score"] = score

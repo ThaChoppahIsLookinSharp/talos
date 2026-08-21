@@ -21,6 +21,7 @@ from talos.evaluation.zigzag_evaluator import (
     EvaluationResult,
     mapping_objective_for_level1,
 )
+from talos.level2.scoring import augmented_tchebycheff_scores
 
 
 # Level 1 is a pool-independent screening stage, not the physical optimizer.
@@ -55,6 +56,7 @@ SUMMARY_FIELDNAMES = [
     "covered_by_pe",
     "level2_objective_names",
     "level2_objective_values",
+    "level2_global_balanced_score",
     "level2_area",
     "level2_power",
     "workload_energy_j",
@@ -516,6 +518,7 @@ def main() -> int:
             print_first_solution(level2_result.solutions[0])
         print()
 
+    rank_full_flow_rows(summary_rows, args.level2_objectives)
     summary_path = write_summary_csv(results_dir, summary_rows)
     if not summary_rows:
         print("No combined Level 1 -> Level 2 rows were produced.")
@@ -985,6 +988,7 @@ def build_summary_rows(
                     level2_objective_names,
                 ),
                 "level2_objective_values": solution.get("objective_values", ""),
+                "level2_global_balanced_score": None,
                 "level2_area": solution.get("area", ""),
                 "level2_power": solution.get("power", ""),
                 "workload_energy_j": solution.get("workload_energy_j", ""),
@@ -1039,6 +1043,48 @@ def build_summary_rows(
             }
         )
     return rows
+
+
+def rank_full_flow_rows(
+    rows: list[dict[str, Any]],
+    level2_objective_names: list[str],
+) -> None:
+    def is_feasible(row: dict[str, Any]) -> bool:
+        return bool(row.get("level2_valid") and row.get("constraints_satisfied"))
+
+    multi_objective = len(level2_objective_names) > 1
+    feasible_rows = [
+        row
+        for row in rows
+        if is_feasible(row)
+    ]
+    for row in rows:
+        row["level2_global_balanced_score"] = None
+
+    if multi_objective:
+        scores = augmented_tchebycheff_scores(
+            [row["level2_objective_values"] for row in feasible_rows]
+        )
+        for row, score in zip(feasible_rows, scores, strict=True):
+            row["level2_global_balanced_score"] = score
+
+    def sort_key(row: dict[str, Any]) -> tuple[bool, float, int, int]:
+        feasible = is_feasible(row)
+        score = float("inf")
+        if feasible:
+            score = (
+                row["level2_global_balanced_score"]
+                if multi_objective
+                else row["level2_objective_values"][0]
+            )
+        return (
+            not feasible,
+            float(score),
+            int(row["architecture_index"]),
+            int(row["level2_solution_index"]),
+        )
+
+    rows.sort(key=sort_key)
 
 
 def _combined_constraint_violations(

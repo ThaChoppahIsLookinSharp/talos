@@ -224,13 +224,17 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
         self.assertTrue(all(row["balanced_score"] is None for row in result.solutions))
         self.assertIn("balanced_score", csv_text.splitlines()[0])
 
-    def test_balanced_score_prefers_the_normalized_compromise(self) -> None:
+    def test_balanced_score_matches_augmented_tchebycheff_formula(self) -> None:
         rows = ranking_rows([[1, 100], [2, 20], [3, 10]])
 
         ordered = balanced_order(rows)
+        expected_ratios = [math.log(2 / 1), math.log(20 / 10)]
+        expected = 100 * (
+            max(expected_ratios) + 0.05 * sum(expected_ratios)
+        )
 
         self.assertEqual(ordered[0]["genome"], [1.0])
-        self.assertAlmostEqual(ordered[0]["balanced_score"], math.sqrt(0.25 + 1 / 81))
+        self.assertAlmostEqual(ordered[0]["balanced_score"], expected)
 
     def test_balanced_score_is_scale_and_objective_order_invariant(self) -> None:
         original = balanced_order(ranking_rows([[1, 100], [2, 20], [3, 10]]))
@@ -242,17 +246,33 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
         self.assertEqual(original[0]["genome"], [1.0])
         self.assertEqual(scaled[0]["genome"], [1.0])
         self.assertEqual(reordered[0]["genome"], [1.0])
+        for original_row, scaled_row in zip(original, scaled, strict=True):
+            self.assertAlmostEqual(
+                original_row["balanced_score"],
+                scaled_row["balanced_score"],
+            )
         self.assertEqual(tied[0]["genome"], [0.0])
         self.assertEqual(tied_reordered[0]["genome"], [0.0])
 
     def test_constant_objectives_and_one_candidate_have_finite_scores(self) -> None:
         rows = ranking_rows([[1, 50, 2e-6], [2, 20, 2e-6], [3, 10, 2e-6]])
         ordered = balanced_order(rows)
+        without_constant = balanced_order(ranking_rows([[1, 50], [2, 20], [3, 10]]))
         one_candidate = balanced_order(ranking_rows([[7, 11, 13]]))
 
         self.assertEqual(ordered[0]["genome"], [1.0])
         self.assertTrue(all(math.isfinite(row["balanced_score"]) for row in rows))
+        for row, shorter_row in zip(ordered, without_constant, strict=True):
+            self.assertAlmostEqual(row["balanced_score"], shorter_row["balanced_score"])
         self.assertEqual(one_candidate[0]["balanced_score"], 0.0)
+
+    def test_non_positive_objective_rejects_logarithmic_scoring(self) -> None:
+        for value in (0, -1):
+            with self.subTest(value=value), self.assertRaisesRegex(
+                ValueError,
+                "strictly positive",
+            ):
+                _assign_balanced_scores(ranking_rows([[1, 2], [value, 3]]))
 
     def test_constraints_do_not_contribute_to_normalization_ranges(self) -> None:
         accelerator = AbstractAccelerator(
@@ -276,7 +296,19 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
         )
 
         self.assertEqual(len(result.solutions), 2)
-        self.assertTrue(all(row["balanced_score"] == 1.0 for row in result.solutions))
+        self.assertEqual({row["solution_index"] for row in result.solutions}, {1, 2})
+        minimums = [2, 50]
+        for row in result.solutions:
+            ratios = [
+                math.log(value / minimum)
+                for value, minimum in zip(
+                    row["objective_values"], minimums, strict=True
+                )
+            ]
+            self.assertAlmostEqual(
+                row["balanced_score"],
+                100 * (max(ratios) + 0.05 * sum(ratios)),
+            )
 
     def test_exhaustive_runner_respects_constraints(self) -> None:
         ip_pool = IPPool.from_yaml(SYNTHETIC_POOL_PATH)
