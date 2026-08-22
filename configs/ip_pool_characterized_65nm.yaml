@@ -595,3 +595,27 @@ ips:
     corner: NCCOM
   capacity_bits: 131072
   bandwidth_bits: 1024
+- id: dram_platform_512b
+  type: dram
+  area: 0.0
+  throughput: 1.0
+  delay: 5.0
+  fmax_mhz: 200.0
+  bandwidth_bits: 512
+  metadata:
+    accesses_per_cycle: 1.0
+    scope: shared_platform
+    disclaimer: Synthetic off-chip DRAM plus PHY proxy; recalibrated by the full flow.
+  power_model:
+    source: synthetic
+    activity_method: access_rate
+    reference_frequency_mhz: 200.0
+    p_idle_w: 0.02
+    p_active_w: 1.812
+    voltage_v: 1.2
+    temperature_c: 25.0
+    corner: NCCOM
+    metadata:
+      idle_mode: refresh, PHY and standby
+      active_mode: One 512-bit access per cycle.
+      dynamic_energy_pj_per_access: 8960.0

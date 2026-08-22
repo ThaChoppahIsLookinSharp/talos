@@ -445,15 +445,17 @@ ips:
 the 27 characterized 65 nm IPs. It preserves the characterization
 output, including areas in um2 and the original numeric-format labels.
 The runtime pools convert areas to mm2 and normalize those labels
-to `int8`, `uint8`, `float16`, or `float32`. The three characterized
-pools do not duplicate the shared platform DRAM.
+to `int8`, `uint8`, `float16`, or `float32`. The integer characterized
+pool includes the shared 512-bit platform DRAM proxy; the FP16 and FP32
+pools let the full flow inject the same proxy.
 
 The five included pools are:
 
 - `configs/ip_pool_example.yaml`: illustrative values for small examples.
 - `configs/ip_pool_synthetic_65nm.yaml`: synthetic values used by tests and sweeps; they are not foundry characterization.
 - `configs/ip_pool_characterized_65nm.yaml`: post-synthesis TSMC65 PE
-  characterization for all integer PEs and all 15 memories.
+  characterization for all integer PEs and all 15 memories, plus the shared
+  512-bit platform DRAM proxy.
 - `configs/ip_pool_fp16_65nm.yaml`: the two FP16 PEs and the RF and GB
   characterization from the supplied 65 nm pool.
 - `configs/ip_pool_fp32_65nm.yaml`: the three FP32 PEs and all 15

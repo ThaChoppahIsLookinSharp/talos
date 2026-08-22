@@ -97,9 +97,12 @@ class CharacterizedIPPoolTests(unittest.TestCase):
                     if ip["type"] == "pe"
                     and self._source_format(ip) == pe_format
                 }
+                expected_runtime_ids = expected_pes | memories
+                if filename == "ip_pool_characterized_65nm.yaml":
+                    expected_runtime_ids.add("dram_platform_512b")
                 self.assertEqual(
                     set(pool_by_id),
-                    expected_pes | memories,
+                    expected_runtime_ids,
                 )
                 for ip_id in expected_pes | memories:
                     self._assert_matches_source(
