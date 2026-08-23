@@ -27,6 +27,7 @@ from examples.full_flow_example import (
     rank_full_flow_rows,
     select_level1_candidates,
     write_summary_csv,
+    write_winner_artifacts,
     write_level1_handoff,
 )
 from examples.objective_sweep import (
@@ -447,6 +448,26 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertTrue(
             all(row["level2_global_balanced_score"] is None for row in rows)
         )
+
+    def test_winner_artifacts_copy_selected_zigzag_mapping(self) -> None:
+        row = summary_ranking_row(5, 2, [1])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            zigzag_source = root / "source"
+            zigzag_source.mkdir()
+            (zigzag_source / "layer_complete.json").write_text("{}")
+            candidate = SimpleNamespace(
+                source_index=5,
+                evaluation=SimpleNamespace(zigzag_output_dir=str(zigzag_source)),
+            )
+
+            artifact_dir = write_winner_artifacts(
+                root / "results", [row], [candidate]
+            )
+
+            self.assertEqual(artifact_dir, root / "results" / "winner")
+            self.assertTrue((artifact_dir / "architecture.json").is_file())
+            self.assertTrue((artifact_dir / "zigzag" / "layer_complete.json").is_file())
 
     def test_legacy_flow_delegates_to_shared_full_flow_ranking(self) -> None:
         path = REPO_ROOT / "examples" / "full_flow_legacy_objectives.py"

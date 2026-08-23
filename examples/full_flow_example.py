@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import shutil
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -520,9 +521,12 @@ def main() -> int:
 
     rank_full_flow_rows(summary_rows, args.level2_objectives)
     summary_path = write_summary_csv(results_dir, summary_rows)
+    winner_path = write_winner_artifacts(results_dir, summary_rows, candidates)
     if not summary_rows:
         print("No combined Level 1 -> Level 2 rows were produced.")
     print(f"Summary CSV written to: {summary_path}")
+    if winner_path is not None:
+        print(f"Winner artifacts written to: {winner_path}")
     return 1 if level2_failures else 0
 
 
@@ -551,6 +555,11 @@ def write_level1_handoff(
                     None
                     if candidate.evaluation is None
                     else candidate.evaluation.mapping_objective
+                ),
+                "zigzag_output_dir": (
+                    None
+                    if candidate.evaluation is None
+                    else candidate.evaluation.zigzag_output_dir
                 ),
                 "activity_profile": {
                     "layers": [asdict(layer) for layer in candidate.activity_profile.layers]
@@ -595,6 +604,7 @@ def load_level1_handoff(
                     valid=True,
                     activity_profile=profile,
                     mapping_objective=item.get("mapping_objective"),
+                    zigzag_output_dir=item.get("zigzag_output_dir"),
                 ),
             )
         )
@@ -1117,6 +1127,45 @@ def write_summary_csv(results_dir: Path, rows: list[dict[str, Any]]) -> Path:
                 }
             )
     return summary_path
+
+
+def write_winner_artifacts(
+    results_dir: Path,
+    rows: list[dict[str, Any]],
+    candidates: list[Level1Candidate],
+) -> Path | None:
+    """Write the selected architecture and its exact ZigZag dump."""
+    if not rows:
+        return None
+
+    winner = rows[0]
+    artifact_dir = results_dir / "winner"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / "architecture.json").write_text(
+        json.dumps(winner, indent=2, default=str),
+        encoding="utf-8",
+    )
+
+    candidate = next(
+        (
+            candidate
+            for candidate in candidates
+            if candidate.source_index == winner["architecture_index"]
+        ),
+        None,
+    )
+    mapping_dir = (
+        None
+        if candidate is None or candidate.evaluation is None
+        else candidate.evaluation.zigzag_output_dir
+    )
+    if mapping_dir is not None and Path(mapping_dir).is_dir():
+        shutil.copytree(
+            mapping_dir,
+            artifact_dir / "zigzag",
+            dirs_exist_ok=True,
+        )
+    return artifact_dir
 
 
 def csv_value(value: Any) -> Any:

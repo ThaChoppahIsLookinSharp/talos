@@ -211,6 +211,7 @@ class EvaluationResult:
     error_message: str | None = None
     activity_profile: WorkloadActivityProfile | None = None
     mapping_objective: str | None = None
+    zigzag_output_dir: str | None = None
 
 
 class ZigZagEvaluator:
@@ -278,6 +279,7 @@ class ZigZagEvaluator:
         )
         self.mapping_yaml_path = self._write_mapping_yaml(self.mapping)
         self._evaluation_counter = 0
+        self._last_zigzag_output_dir: Path | None = None
         self._onnx_workload: ModelProto | None = None
         self._operand_numeric_formats_by_layer: dict[
             int,
@@ -286,6 +288,7 @@ class ZigZagEvaluator:
 
     def evaluate(self, genome: list[float]) -> EvaluationResult:
         try:
+            self._last_zigzag_output_dir = None
             cfg = decode_genome(genome)
             area = self.area_calibration.area_mm2(cfg)
             accelerator = self._build_accelerator(cfg)
@@ -316,6 +319,11 @@ class ZigZagEvaluator:
                 valid=True,
                 activity_profile=activity_profile,
                 mapping_objective=self.opt,
+                zigzag_output_dir=(
+                    None
+                    if self._last_zigzag_output_dir is None
+                    else str(self._last_zigzag_output_dir)
+                ),
             )
 
         except Exception as exc:
@@ -374,6 +382,7 @@ class ZigZagEvaluator:
         from zigzag.api import get_hardware_performance_zigzag
 
         dump_folder = self._next_dump_folder()
+        self._last_zigzag_output_dir = Path(dump_folder)
         pickle_path = Path(dump_folder) / "list_of_cmes.pickle"
         energy, latency, _cumulative_cme = get_hardware_performance_zigzag(
             workload=self._prepared_workload(),
