@@ -39,3 +39,4 @@ results/
 *.md
 !READMe.md
 run_*
+plot_talos_pareto.py
