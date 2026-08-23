@@ -36,3 +36,6 @@ htmlcov/
 outputs/
 results/
 .talos_zigzag/
+*.md
+!READMe.md
+run_*
