@@ -28,7 +28,7 @@ IMPORTANT:
   * By default, selection uses TOTAL workload energy (workload_energy_j),
     including DRAM, exactly as in the original sweep.
   * onchip_energy_j = workload_energy_j - dram_energy_j is also reported.
-  * Existing/local balanced_score columns are ignored.
+  * Existing/local augmented_tchebycheff_score columns are ignored.
   * Exact ties are preserved as separate winner rows.
 
 Examples:

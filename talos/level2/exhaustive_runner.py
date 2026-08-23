@@ -68,7 +68,7 @@ def run_level2_exhaustive(
 
     if len(objectives) == 1:
         for row in rows:
-            row["balanced_score"] = None
+            row["augmented_tchebycheff_score"] = None
         rows.sort(
             key=lambda row: (
                 float(row["objective_values"][0]),
@@ -76,10 +76,10 @@ def run_level2_exhaustive(
             )
         )
     else:
-        _assign_balanced_scores(rows)
+        _assign_augmented_tchebycheff_scores(rows)
         rows.sort(
             key=lambda row: (
-                float(row["balanced_score"]),
+                float(row["augmented_tchebycheff_score"]),
                 tuple(float(value) for value in row["genome"]),
             )
         )
@@ -102,11 +102,11 @@ def run_level2_exhaustive(
     )
 
 
-def _assign_balanced_scores(rows: list[dict[str, Any]]) -> None:
+def _assign_augmented_tchebycheff_scores(rows: list[dict[str, Any]]) -> None:
     # This ideal point is local to one architecture. Such scores are not
     # comparable across architectures; the full flow recomputes a global score.
     scores = augmented_tchebycheff_scores(
         [row["objective_values"] for row in rows]
     )
     for row, score in zip(rows, scores, strict=True):
-        row["balanced_score"] = score
+        row["augmented_tchebycheff_score"] = score

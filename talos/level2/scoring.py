@@ -4,7 +4,7 @@ import math
 from collections.abc import Sequence
 
 
-BALANCED_SCORE_RHO = 0.05
+AUGMENTED_TCHEBYCHEFF_RHO = 0.05
 
 
 def augmented_tchebycheff_scores(
@@ -16,14 +16,16 @@ def augmented_tchebycheff_scores(
     values = [[float(value) for value in row] for row in objective_values]
     objective_count = len(values[0])
     if not objective_count or any(len(row) != objective_count for row in values):
-        raise ValueError("Balanced scoring requires equally sized objective vectors.")
+        raise ValueError(
+            "Augmented Tchebycheff scoring requires equally sized objective vectors."
+        )
     if any(
         not math.isfinite(value) or value <= 0.0
         for row in values
         for value in row
     ):
         raise ValueError(
-            "Logarithmic balanced scoring requires strictly positive, finite "
+            "Logarithmic augmented Tchebycheff scoring requires strictly positive, finite "
             "minimization objective values."
         )
 
@@ -39,6 +41,6 @@ def augmented_tchebycheff_scores(
         ]
         scores.append(
             100.0
-            * (max(ratios) + BALANCED_SCORE_RHO * sum(ratios))
+            * (max(ratios) + AUGMENTED_TCHEBYCHEFF_RHO * sum(ratios))
         )
     return scores

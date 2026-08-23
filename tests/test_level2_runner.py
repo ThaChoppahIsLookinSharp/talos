@@ -23,7 +23,7 @@ from talos.level2 import (
     run_level2_nsga2,
 )
 from talos.level2.problem import Level2PymooProblem
-from talos.level2.exhaustive_runner import _assign_balanced_scores
+from talos.level2.exhaustive_runner import _assign_augmented_tchebycheff_scores
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -87,18 +87,20 @@ def ranking_rows(objectives: list[list[float]]) -> list[dict[str, object]]:
         {
             "genome": [float(index)],
             "objective_values": values,
-            "balanced_score": None,
+            "augmented_tchebycheff_score": None,
         }
         for index, values in enumerate(objectives)
     ]
 
 
-def balanced_order(rows: list[dict[str, object]]) -> list[dict[str, object]]:
-    _assign_balanced_scores(rows)
+def augmented_tchebycheff_order(
+    rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    _assign_augmented_tchebycheff_scores(rows)
     return sorted(
         rows,
         key=lambda row: (
-            float(row["balanced_score"]),
+            float(row["augmented_tchebycheff_score"]),
             tuple(float(value) for value in row["genome"]),
         ),
     )
@@ -191,14 +193,20 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
         )
         self.assertEqual(solution["strategy"], "exhaustive")
         self.assertTrue(
-            all(isinstance(row["balanced_score"], float) for row in result.solutions)
+            all(
+                isinstance(row["augmented_tchebycheff_score"], float)
+                for row in result.solutions
+            )
         )
         self.assertEqual(
-            solution["balanced_score"],
-            min(row["balanced_score"] for row in result.solutions),
+            solution["augmented_tchebycheff_score"],
+            min(
+                row["augmented_tchebycheff_score"]
+                for row in result.solutions
+            ),
         )
 
-    def test_single_objective_keeps_minimum_and_no_balanced_score(self) -> None:
+    def test_single_objective_keeps_minimum_and_no_tchebycheff_score(self) -> None:
         accelerator = AbstractAccelerator(
             name="single-objective",
             components=[AbstractComponent(name="pe_array", type="pe")],
@@ -221,50 +229,77 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
             csv_text = result.csv_path.read_text(encoding="utf-8")
 
         self.assertEqual(result.solutions[0]["area"], 1)
-        self.assertTrue(all(row["balanced_score"] is None for row in result.solutions))
-        self.assertIn("balanced_score", csv_text.splitlines()[0])
+        self.assertTrue(
+            all(
+                row["augmented_tchebycheff_score"] is None
+                for row in result.solutions
+            )
+        )
+        self.assertIn("augmented_tchebycheff_score", csv_text.splitlines()[0])
 
-    def test_balanced_score_matches_augmented_tchebycheff_formula(self) -> None:
+    def test_augmented_tchebycheff_score_matches_formula(self) -> None:
         rows = ranking_rows([[1, 100], [2, 20], [3, 10]])
 
-        ordered = balanced_order(rows)
+        ordered = augmented_tchebycheff_order(rows)
         expected_ratios = [math.log(2 / 1), math.log(20 / 10)]
         expected = 100 * (
             max(expected_ratios) + 0.05 * sum(expected_ratios)
         )
 
         self.assertEqual(ordered[0]["genome"], [1.0])
-        self.assertAlmostEqual(ordered[0]["balanced_score"], expected)
+        self.assertAlmostEqual(
+            ordered[0]["augmented_tchebycheff_score"], expected
+        )
 
-    def test_balanced_score_is_scale_and_objective_order_invariant(self) -> None:
-        original = balanced_order(ranking_rows([[1, 100], [2, 20], [3, 10]]))
-        scaled = balanced_order(ranking_rows([[1000, 100], [2000, 20], [3000, 10]]))
-        reordered = balanced_order(ranking_rows([[100, 1], [20, 2], [10, 3]]))
-        tied = balanced_order(ranking_rows([[3, 1], [1, 3]]))
-        tied_reordered = balanced_order(ranking_rows([[1, 3], [3, 1]]))
+    def test_tchebycheff_score_is_scale_and_objective_order_invariant(self) -> None:
+        original = augmented_tchebycheff_order(
+            ranking_rows([[1, 100], [2, 20], [3, 10]])
+        )
+        scaled = augmented_tchebycheff_order(
+            ranking_rows([[1000, 100], [2000, 20], [3000, 10]])
+        )
+        reordered = augmented_tchebycheff_order(
+            ranking_rows([[100, 1], [20, 2], [10, 3]])
+        )
+        tied = augmented_tchebycheff_order(ranking_rows([[3, 1], [1, 3]]))
+        tied_reordered = augmented_tchebycheff_order(
+            ranking_rows([[1, 3], [3, 1]])
+        )
 
         self.assertEqual(original[0]["genome"], [1.0])
         self.assertEqual(scaled[0]["genome"], [1.0])
         self.assertEqual(reordered[0]["genome"], [1.0])
         for original_row, scaled_row in zip(original, scaled, strict=True):
             self.assertAlmostEqual(
-                original_row["balanced_score"],
-                scaled_row["balanced_score"],
+                original_row["augmented_tchebycheff_score"],
+                scaled_row["augmented_tchebycheff_score"],
             )
         self.assertEqual(tied[0]["genome"], [0.0])
         self.assertEqual(tied_reordered[0]["genome"], [0.0])
 
     def test_constant_objectives_and_one_candidate_have_finite_scores(self) -> None:
         rows = ranking_rows([[1, 50, 2e-6], [2, 20, 2e-6], [3, 10, 2e-6]])
-        ordered = balanced_order(rows)
-        without_constant = balanced_order(ranking_rows([[1, 50], [2, 20], [3, 10]]))
-        one_candidate = balanced_order(ranking_rows([[7, 11, 13]]))
+        ordered = augmented_tchebycheff_order(rows)
+        without_constant = augmented_tchebycheff_order(
+            ranking_rows([[1, 50], [2, 20], [3, 10]])
+        )
+        one_candidate = augmented_tchebycheff_order(
+            ranking_rows([[7, 11, 13]])
+        )
 
         self.assertEqual(ordered[0]["genome"], [1.0])
-        self.assertTrue(all(math.isfinite(row["balanced_score"]) for row in rows))
+        self.assertTrue(
+            all(
+                math.isfinite(row["augmented_tchebycheff_score"])
+                for row in rows
+            )
+        )
         for row, shorter_row in zip(ordered, without_constant, strict=True):
-            self.assertAlmostEqual(row["balanced_score"], shorter_row["balanced_score"])
-        self.assertEqual(one_candidate[0]["balanced_score"], 0.0)
+            self.assertAlmostEqual(
+                row["augmented_tchebycheff_score"],
+                shorter_row["augmented_tchebycheff_score"],
+            )
+        self.assertEqual(one_candidate[0]["augmented_tchebycheff_score"], 0.0)
 
     def test_non_positive_objective_rejects_logarithmic_scoring(self) -> None:
         for value in (0, -1):
@@ -272,7 +307,9 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
                 ValueError,
                 "strictly positive",
             ):
-                _assign_balanced_scores(ranking_rows([[1, 2], [value, 3]]))
+                _assign_augmented_tchebycheff_scores(
+                    ranking_rows([[1, 2], [value, 3]])
+                )
 
     def test_constraints_do_not_contribute_to_normalization_ranges(self) -> None:
         accelerator = AbstractAccelerator(
@@ -306,7 +343,7 @@ class Level2ExhaustiveRunnerTests(unittest.TestCase):
                 )
             ]
             self.assertAlmostEqual(
-                row["balanced_score"],
+                row["augmented_tchebycheff_score"],
                 100 * (max(ratios) + 0.05 * sum(ratios)),
             )
 

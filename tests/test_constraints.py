@@ -59,7 +59,7 @@ from talos.ip import IPBlock, IPPool, PowerCharacterization
 from talos.level2 import Level2Evaluator
 from talos.level2.genome import ImplementedAccelerator, ImplementedComponent
 from talos.level2.problem import Level2PymooProblem
-from talos.level2.exhaustive_runner import _assign_balanced_scores
+from talos.level2.exhaustive_runner import _assign_augmented_tchebycheff_scores
 from talos.level2.runner import _build_solution_rows
 
 
@@ -90,7 +90,7 @@ def summary_ranking_row(
         "architecture_index": architecture_index,
         "level2_solution_index": solution_index,
         "level2_objective_values": objective_values,
-        "level2_global_balanced_score": None,
+        "level2_global_augmented_tchebycheff_score": None,
         "level2_valid": True,
         "constraints_satisfied": True,
     }
@@ -405,10 +405,10 @@ class UserConstraintsTests(unittest.TestCase):
             {"objective_values": [10, 100]},
             {"objective_values": [30, 300]},
         ]
-        _assign_balanced_scores(local_a)
-        _assign_balanced_scores(local_b)
-        self.assertEqual(local_a[0]["balanced_score"], 0.0)
-        self.assertEqual(local_b[0]["balanced_score"], 0.0)
+        _assign_augmented_tchebycheff_scores(local_a)
+        _assign_augmented_tchebycheff_scores(local_b)
+        self.assertEqual(local_a[0]["augmented_tchebycheff_score"], 0.0)
+        self.assertEqual(local_b[0]["augmented_tchebycheff_score"], 0.0)
 
         rows = [
             summary_ranking_row(2, 1, [30, 300]),
@@ -422,19 +422,25 @@ class UserConstraintsTests(unittest.TestCase):
             (rows[0]["architecture_index"], rows[0]["level2_solution_index"]),
             (1, 0),
         )
-        self.assertEqual(rows[0]["level2_global_balanced_score"], 0.0)
-        self.assertGreater(rows[2]["level2_global_balanced_score"], 0.0)
+        self.assertEqual(
+            rows[0]["level2_global_augmented_tchebycheff_score"], 0.0
+        )
+        self.assertGreater(
+            rows[2]["level2_global_augmented_tchebycheff_score"], 0.0
+        )
         self.assertLess(
-            rows[1]["level2_global_balanced_score"],
-            rows[2]["level2_global_balanced_score"],
+            rows[1]["level2_global_augmented_tchebycheff_score"],
+            rows[2]["level2_global_augmented_tchebycheff_score"],
         )
 
         with tempfile.TemporaryDirectory() as tmp:
             path = write_summary_csv(Path(tmp), rows)
             with path.open(newline="", encoding="utf-8") as handle:
                 written = list(csv.DictReader(handle))
-        self.assertIn("level2_global_balanced_score", written[0])
-        self.assertEqual(written[0]["level2_global_balanced_score"], "0.0")
+        self.assertIn("level2_global_augmented_tchebycheff_score", written[0])
+        self.assertEqual(
+            written[0]["level2_global_augmented_tchebycheff_score"], "0.0"
+        )
 
     def test_full_flow_single_objective_orders_raw_values_without_score(self) -> None:
         rows = [
@@ -446,7 +452,10 @@ class UserConstraintsTests(unittest.TestCase):
 
         self.assertEqual(rows[0]["level2_objective_values"], [10])
         self.assertTrue(
-            all(row["level2_global_balanced_score"] is None for row in rows)
+            all(
+                row["level2_global_augmented_tchebycheff_score"] is None
+                for row in rows
+            )
         )
 
     def test_winner_artifacts_copy_selected_zigzag_mapping(self) -> None:
@@ -509,8 +518,12 @@ class UserConstraintsTests(unittest.TestCase):
         ]
         rank_full_flow_rows(first_run, ["energy", "area"])
         rank_full_flow_rows(second_run, ["energy", "area"])
-        self.assertEqual(first_run[0]["level2_global_balanced_score"], 0.0)
-        self.assertEqual(second_run[0]["level2_global_balanced_score"], 0.0)
+        self.assertEqual(
+            first_run[0]["level2_global_augmented_tchebycheff_score"], 0.0
+        )
+        self.assertEqual(
+            second_run[0]["level2_global_augmented_tchebycheff_score"], 0.0
+        )
 
     def test_level1_selection_skips_physically_infeasible_candidates(self) -> None:
         pool = IPPool.from_yaml(SYNTHETIC_POOL_PATH)

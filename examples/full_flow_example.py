@@ -57,7 +57,7 @@ SUMMARY_FIELDNAMES = [
     "covered_by_pe",
     "level2_objective_names",
     "level2_objective_values",
-    "level2_global_balanced_score",
+    "level2_global_augmented_tchebycheff_score",
     "level2_area",
     "level2_power",
     "workload_energy_j",
@@ -998,7 +998,7 @@ def build_summary_rows(
                     level2_objective_names,
                 ),
                 "level2_objective_values": solution.get("objective_values", ""),
-                "level2_global_balanced_score": None,
+                "level2_global_augmented_tchebycheff_score": None,
                 "level2_area": solution.get("area", ""),
                 "level2_power": solution.get("power", ""),
                 "workload_energy_j": solution.get("workload_energy_j", ""),
@@ -1069,21 +1069,21 @@ def rank_full_flow_rows(
         if is_feasible(row)
     ]
     for row in rows:
-        row["level2_global_balanced_score"] = None
+        row["level2_global_augmented_tchebycheff_score"] = None
 
     if multi_objective:
         scores = augmented_tchebycheff_scores(
             [row["level2_objective_values"] for row in feasible_rows]
         )
         for row, score in zip(feasible_rows, scores, strict=True):
-            row["level2_global_balanced_score"] = score
+            row["level2_global_augmented_tchebycheff_score"] = score
 
     def sort_key(row: dict[str, Any]) -> tuple[bool, float, int, int]:
         feasible = is_feasible(row)
         score = float("inf")
         if feasible:
             score = (
-                row["level2_global_balanced_score"]
+                row["level2_global_augmented_tchebycheff_score"]
                 if multi_objective
                 else row["level2_objective_values"][0]
             )
