@@ -5,18 +5,22 @@ import pickle
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from onnx import helper
 from zigzag.hardware.architecture.memory_port import DataDirection
 from zigzag.mapping.data_movement import MemoryAccesses
 
 from talos.architecture.genome import (
     GB_BW_OPTIONS,
     GB_SIZE_OPTIONS,
+    RF_BW_OPTIONS,
+    RF_SIZE_OPTIONS,
     ArchitectureConfig,
     default_genome,
     decode_genome,
 )
+from talos.evaluation.area_calibration import Level1AreaCalibration
 from talos.evaluation.cacti_costs import CactiMemoryCost, Level1EnergyCalibration
 from talos.evaluation.workload_activity import (
     LayerActivity,
@@ -25,6 +29,7 @@ from talos.evaluation.workload_activity import (
     extract_workload_activity_profile,
 )
 from talos.evaluation.zigzag_evaluator import (
+    EvaluationResult,
     ZigZagEvaluator,
     mapping_objective_for_level1,
 )
@@ -40,10 +45,45 @@ def energy_calibration() -> Level1EnergyCalibration:
         reference_gb_write_energy_pj=14,
         mac_energy_pj=2,
         gb_costs=tuple(
-            CactiMemoryCost(size, bandwidth, 3, 4)
+            CactiMemoryCost(
+                size,
+                bandwidth,
+                3,
+                4,
+                standby_power_w=0.002,
+            )
             for size in GB_SIZE_OPTIONS
             for bandwidth in GB_BW_OPTIONS
         ),
+        rf_costs=tuple(
+            CactiMemoryCost(
+                size,
+                bandwidth,
+                1,
+                1,
+                standby_power_w=0.001,
+            )
+            for size in RF_SIZE_OPTIONS
+            for bandwidth in RF_BW_OPTIONS
+        ),
+    )
+
+
+def area_calibration(
+    pe_rf_area_mm2: float = 1.0,
+    gb_area_mm2: float = 10.0,
+) -> Level1AreaCalibration:
+    return Level1AreaCalibration(
+        pe_rf_area_mm2={
+            (size, bandwidth): pe_rf_area_mm2
+            for size in RF_SIZE_OPTIONS
+            for bandwidth in RF_BW_OPTIONS
+        },
+        gb_area_mm2={
+            (size, bandwidth): gb_area_mm2
+            for size in GB_SIZE_OPTIONS
+            for bandwidth in GB_BW_OPTIONS
+        },
     )
 
 
@@ -79,6 +119,43 @@ def _accesses(
 
 
 class WorkloadActivityAdapterTests(unittest.TestCase):
+    def test_zigzag_evaluates_candidate_batch_with_spawn_workers(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evaluator = ZigZagEvaluator(
+                workload="unused.onnx",
+                workdir=tmp,
+                energy_calibration=energy_calibration(),
+                area_calibration=area_calibration(),
+            )
+            expected = [
+                EvaluationResult(1, 2, 3, True),
+                EvaluationResult(4, 5, 6, True),
+            ]
+            pool = MagicMock()
+            pool.__enter__.return_value = pool
+            pool.map.return_value = expected
+            context = MagicMock()
+            context.Pool.return_value = pool
+
+            with patch(
+                "talos.evaluation.zigzag_evaluator.mp.get_context",
+                return_value=context,
+            ) as get_context:
+                results = evaluator.evaluate_many(
+                    [default_genome(), default_genome()],
+                    n_workers=8,
+                )
+
+        self.assertEqual(results, expected)
+        get_context.assert_called_once_with("spawn")
+        self.assertEqual(
+            context.Pool.call_args.kwargs["processes"],
+            2,
+        )
+        pool.map.assert_called_once()
+
     def test_workload_performance_uses_mapping_cycles_and_reference_frequency(self) -> None:
         profile = WorkloadActivityProfile(
             layers=(
@@ -130,6 +207,7 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
                 dram_accesses_per_cycle=2,
                 dram_power_model=model,
                 energy_calibration=energy_calibration(),
+                area_calibration=area_calibration(),
             )
             config = decode_genome(default_genome())
             dram = evaluator._build_accelerator(config)["memories"]["dram"]
@@ -139,8 +217,8 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
         self.assertEqual(dram["w_cost"], 6_400)
         self.assertEqual(evaluator._dram_idle_energy_pj(100), 1_000_000)
 
-    def test_area_proxy_counts_three_rfs_and_replicated_global_buffers(self) -> None:
-        evaluator = ZigZagEvaluator.__new__(ZigZagEvaluator)
+    def test_physical_area_counts_replicated_global_buffers(self) -> None:
+        calibration = area_calibration(pe_rf_area_mm2=2, gb_area_mm2=3)
         base = {
             "pe_x": 4,
             "pe_y": 8,
@@ -158,16 +236,69 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
             (["D1", "D2"], 1),
         ):
             with self.subTest(served_dimensions=served_dimensions):
-                area = evaluator._estimate_area(
+                area = calibration.area_mm2(
                     ArchitectureConfig(
                         **base,
                         gb_served_dims=served_dimensions,
                     )
                 )
-                self.assertEqual(
-                    area,
-                    32 + 3 * 32 * 64 * 0.001 + gb_count * 8192 * 0.0005,
+                self.assertEqual(area, 32 * 2 + gb_count * 3)
+
+    def test_incompatible_physical_area_skips_zigzag(self) -> None:
+        calibration = area_calibration()
+        config = decode_genome(default_genome())
+        calibration.gb_area_mm2[
+            (config.gb_size_bits, config.gb_bw_bits)
+        ] = None
+        with tempfile.TemporaryDirectory() as tmp:
+            evaluator = ZigZagEvaluator(
+                workload="unused.onnx",
+                workdir=tmp,
+                energy_calibration=energy_calibration(),
+                area_calibration=calibration,
+            )
+            with patch.object(evaluator, "_run_zigzag") as run_zigzag:
+                result = evaluator.evaluate(default_genome())
+
+        self.assertFalse(result.valid)
+        self.assertIn("No physical IP combination", result.error_message or "")
+        run_zigzag.assert_not_called()
+
+    def test_onchip_idle_formula(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evaluator = ZigZagEvaluator(
+                workload="unused.onnx",
+                workdir=tmp,
+                energy_calibration=energy_calibration(),
+                area_calibration=area_calibration(),
+            )
+            config = ArchitectureConfig(
+                pe_x=4,
+                pe_y=8,
+                rf_size_bits=64,
+                rf_bw_bits=8,
+                gb_size_bits=8192,
+                gb_bw_bits=64,
+                gb_served_dims=["D1", "D2"],
+                dram_bw_bits=512,
+            )
+            profile = WorkloadActivityProfile(
+                layers=(
+                    LayerActivity("conv", 10, 100, 16, {}),
                 )
+            )
+
+            idle_energy = evaluator._onchip_idle_energy_pj(
+                config,
+                profile,
+            )
+
+        # PE: (32 * 10 - 100) * 0.1 * 2 pJ = 44 pJ.
+        # Leakage: (96 * 1 mW + 1 * 2 mW) for 10 cycles
+        # at 500 MHz = 1960 pJ. Abstract clock-idle adds
+        # 96 * 10 * 0.1 * 1 pJ * 8 words = 768 pJ for RFs,
+        # and 10 * 0.1 * 3.5 pJ * 128 words = 448 pJ for GB.
+        self.assertAlmostEqual(idle_energy, 3220)
 
     def test_layer_activity_validates_values(self) -> None:
         values = {
@@ -187,6 +318,8 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
             {"memory_accesses": {"gb": -1}},
             {"operand_precision_bits": []},
             {"operand_precision_bits": {"I": 0}},
+            {"operand_numeric_formats": []},
+            {"operand_numeric_formats": {"I": ""}},
         ):
             with self.subTest(override=override):
                 with self.assertRaises(ValueError):
@@ -207,6 +340,10 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
                 workload="unused.onnx",
                 workdir=tmp,
                 energy_calibration=energy_calibration(),
+                area_calibration=area_calibration(),
+            )
+            evaluator._onnx_workload = helper.make_model(
+                helper.make_graph([], "test", [], [])
             )
             with patch(
                 "zigzag.api.get_hardware_performance_zigzag",
@@ -246,7 +383,12 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
             ),
         )
 
-        profile = extract_workload_activity_profile([cme])
+        profile = extract_workload_activity_profile(
+            [cme],
+            operand_numeric_formats_by_layer={
+                7: {"I": "int8", "W": "int8", "O": "int8"},
+            },
+        )
         layer = profile.layers[0]
 
         self.assertEqual(layer.layer_id, "Op7")
@@ -256,6 +398,10 @@ class WorkloadActivityAdapterTests(unittest.TestCase):
         self.assertEqual(
             layer.operand_precision_bits,
             {"I": 8, "W": 8, "O": 16},
+        )
+        self.assertEqual(
+            layer.operand_numeric_formats,
+            {"I": "int8", "W": "int8", "O": "int8"},
         )
         self.assertEqual(
             layer.memory_accesses,

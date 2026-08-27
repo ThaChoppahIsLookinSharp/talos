@@ -6,8 +6,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from talos.evaluation.objective_adapter import ObjectiveAdapter
+from talos.evaluation.area_calibration import characterize_level1_area
 from talos.evaluation.cacti_costs import characterize_level1_energy
 from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
+from talos.ip import IPPool
 
 
 def main() -> None:
@@ -16,6 +18,9 @@ def main() -> None:
         str(workload),
         debug=False,
         energy_calibration=characterize_level1_energy(),
+        area_calibration=characterize_level1_area(
+            IPPool.from_yaml(REPO_ROOT / "configs" / "ip_pool_synthetic_65nm.yaml")
+        ),
     )
     adapter = ObjectiveAdapter(evaluator)
     genome = [2, 2, 3, 2, 3, 2, 3]

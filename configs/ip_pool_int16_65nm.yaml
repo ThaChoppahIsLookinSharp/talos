@@ -1,0 +1,375 @@
+# INT16 runtime pool at 65 nm, 200 MHz, 1.2 V, 25 C, NCCOM.
+# PE and on-chip-memory areas are expressed in mm2.
+# The DRAM entry is a shared synthetic platform proxy; the full flow
+# recalibrates its active power from the workload energy calibration.
+technology_nm: 65
+
+ips:
+  - id: pe_sauria_int16
+    type: pe
+    area: 0.00509364
+    throughput: 1.0
+    delay: 4.803
+    fmax_mhz: 208.20320632937748
+    metadata:
+      precision_bits: 16
+      activation_bits: 16
+      weight_bits: 16
+      accumulator_bits: 48
+      output_bits: 48
+      signed: true
+      data_type: integer
+      numeric_format: int16
+      macs_per_cycle: 1
+      pipeline_latency_cycles: 3
+      dynamic_energy_per_mac_pj: 5.281205
+    power_model: &characterization
+      source: Cadence Genus mapped standard-cell characterization
+      activity_method: vectorless_explicit
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.000593089
+      p_active_w: 0.00164933
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: NCCOM
+
+  - id: pe_gemmini_like_int16
+    type: pe
+    area: 0.00519012
+    throughput: 1.0
+    delay: 4.988
+    fmax_mhz: 200.48115477145146
+    metadata:
+      precision_bits: 16
+      activation_bits: 16
+      weight_bits: 16
+      accumulator_bits: 48
+      output_bits: 48
+      signed: true
+      data_type: integer
+      numeric_format: int16
+      macs_per_cycle: 1
+      pipeline_latency_cycles: 1
+      dynamic_energy_per_mac_pj: 6.22126
+    power_model:
+      <<: *characterization
+      p_idle_w: 0.000354188
+      p_active_w: 0.00159844
+
+  - id: pe_tiny_xpu_int16
+    type: pe
+    area: 0.00314928
+    throughput: 1.0
+    delay: 4.997
+    fmax_mhz: 200.12007204322595
+    metadata:
+      precision_bits: 16
+      activation_bits: 16
+      weight_bits: 16
+      accumulator_bits: 48
+      output_bits: 48
+      signed: true
+      data_type: integer
+      numeric_format: int16
+      macs_per_cycle: 1
+      pipeline_latency_cycles: 1
+      dynamic_energy_per_mac_pj: 4.304755
+    power_model:
+      <<: *characterization
+      p_idle_w: 0.000187489
+      p_active_w: 0.00104844
+
+  - id: mem_bsg_1rw_8x8
+    type: register_file
+    area: 0.00072036
+    throughput: 1.0
+    delay: 0.957
+    fmax_mhz: 1044.9320794148382
+    capacity_bits: 64
+    bandwidth_bits: 8
+    metadata:
+      accesses_per_cycle: 1
+      ports: 1RW
+      read_energy_pj: 0.12211
+      write_energy_pj: 0.497435
+    power_model:
+      <<: *characterization
+      p_idle_w: 0.000145397
+      p_active_w: 0.000232283
+
+  - id: mem_bsg_1rw_8x16
+    type: register_file
+    area: 0.00137412
+    throughput: 1.0
+    delay: 1.079
+    fmax_mhz: 926.78405931418
+    capacity_bits: 128
+    bandwidth_bits: 16
+    metadata:
+      accesses_per_cycle: 1
+      ports: 1RW
+      read_energy_pj: 0.203575
+      write_energy_pj: 0.94604
+    power_model:
+      <<: *characterization
+      p_idle_w: 0.000284486
+      p_active_w: 0.000447538
+
+  - id: mem_bsg_1rw_8x32
+    type: register_file
+    area: 0.00269532
+    throughput: 1.0
+    delay: 1.098
+    fmax_mhz: 910.7468123861568
+    capacity_bits: 256
+    bandwidth_bits: 32
+    metadata:
+      accesses_per_cycle: 1
+      ports: 1RW
+      read_energy_pj: 0.377705
+      write_energy_pj: 1.85541
+    power_model:
+      <<: *characterization
+      p_idle_w: 0.000562664
+      p_active_w: 0.00088051
+
+  - id: mem_bsg_1rw_8x64
+    type: register_file
+    area: 0.00531648
+    throughput: 1.0
+    delay: 1.143
+    fmax_mhz: 874.8906386701664
+    capacity_bits: 512
+    bandwidth_bits: 64
+    metadata:
+      accesses_per_cycle: 1
+      ports: 1RW
+      read_energy_pj: 0.7066
+      write_energy_pj: 3.6565
+    power_model:
+      <<: *characterization
+      p_idle_w: 0.00111907
+      p_active_w: 0.00174303
+
+  - id: mem_bsg_1rw_8x128
+    type: register_file
+    area: 0.01056492
+    throughput: 1.0
+    delay: 1.259
+    fmax_mhz: 794.2811755361398
+    capacity_bits: 1024
+    bandwidth_bits: 128
+    metadata:
+      accesses_per_cycle: 1
+      ports: 1RW
+      read_energy_pj: 1.37635
+      write_energy_pj: 7.2682
+    power_model:
+      <<: *characterization
+      p_idle_w: 0.00202461
+      p_active_w: 0.00326243
+
+  - id: mem_bsg_1rw_8x256
+    type: register_file
+    area: 0.02106828
+    throughput: 1.0
+    delay: 1.248
+    fmax_mhz: 801.2820512820514
+    capacity_bits: 2048
+    bandwidth_bits: 256
+    metadata:
+      accesses_per_cycle: 1
+      ports: 1RW
+      read_energy_pj: 2.72435
+      write_energy_pj: 14.49525
+    power_model:
+      <<: *characterization
+      p_idle_w: 0.00404238
+      p_active_w: 0.00650864
+
+  - id: mem_bsg_1r1w_8x8
+    type: register_file
+    area: 0.00071892
+    throughput: 2.0
+    delay: 0.957
+    fmax_mhz: 1044.9320794148382
+    capacity_bits: 64
+    bandwidth_bits: 8
+    metadata:
+      accesses_per_cycle: 2
+      ports: 1R1W
+      read_energy_pj: 0.114905
+      write_energy_pj: 0.407255
+    power_model:
+      <<: *characterization
+      p_idle_w: 0.000145303
+      p_active_w: 0.000245334
+
+  - id: mem_bsg_1r1w_8x16
+    type: register_file
+    area: 0.00137268
+    throughput: 2.0
+    delay: 1.092
+    fmax_mhz: 915.7509157509157
+    capacity_bits: 128
+    bandwidth_bits: 16
+    metadata:
+      accesses_per_cycle: 2
+      ports: 1R1W
+      read_energy_pj: 0.195925
+      write_energy_pj: 0.7991
+    power_model:
+      <<: *characterization
+      p_idle_w: 0.000284371
+      p_active_w: 0.000474616
+
+  - id: mem_bsg_1r1w_8x32
+    type: register_file
+    area: 0.00269388
+    throughput: 2.0
+    delay: 1.098
+    fmax_mhz: 910.7468123861568
+    capacity_bits: 256
+    bandwidth_bits: 32
+    metadata:
+      accesses_per_cycle: 2
+      ports: 1R1W
+      read_energy_pj: 0.365945
+      write_energy_pj: 1.582795
+    power_model:
+      <<: *characterization
+      p_idle_w: 0.000562296
+      p_active_w: 0.000935337
+
+  - id: mem_bsg_1r1w_8x64
+    type: register_file
+    area: 0.00531576
+    throughput: 2.0
+    delay: 1.115
+    fmax_mhz: 896.8609865470854
+    capacity_bits: 512
+    bandwidth_bits: 64
+    metadata:
+      accesses_per_cycle: 2
+      ports: 1R1W
+      read_energy_pj: 0.6976
+      write_energy_pj: 3.15635
+    power_model:
+      <<: *characterization
+      p_idle_w: 0.00111873
+      p_active_w: 0.00185479
+
+  - id: mem_bsg_1r1w_8x128
+    type: register_file
+    area: 0.01056384
+    throughput: 2.0
+    delay: 1.259
+    fmax_mhz: 794.2811755361398
+    capacity_bits: 1024
+    bandwidth_bits: 128
+    metadata:
+      accesses_per_cycle: 2
+      ports: 1R1W
+      read_energy_pj: 1.3682
+      write_energy_pj: 6.2796
+    power_model:
+      <<: *characterization
+      p_idle_w: 0.00202331
+      p_active_w: 0.00348659
+
+  - id: mem_bsg_1r1w_8x256
+    type: register_file
+    area: 0.0210672
+    throughput: 2.0
+    delay: 1.248
+    fmax_mhz: 801.2820512820514
+    capacity_bits: 2048
+    bandwidth_bits: 256
+    metadata:
+      accesses_per_cycle: 2
+      ports: 1R1W
+      read_energy_pj: 2.7126
+      write_energy_pj: 12.527
+    power_model:
+      <<: *characterization
+      p_idle_w: 0.00404051
+      p_active_w: 0.00695771
+
+  - id: mem_openeye_sp_128x64
+    type: global_buffer
+    area: 0.0856116
+    throughput: 1.0
+    delay: 1.468
+    fmax_mhz: 681.1989100817439
+    capacity_bits: 8192
+    bandwidth_bits: 64
+    metadata:
+      accesses_per_cycle: 1
+      ports: 1RW
+      read_energy_pj: 1.729
+      write_energy_pj: 9.7
+    power_model:
+      <<: *characterization
+      p_idle_w: 0.0159773
+      p_active_w: 0.017689
+
+  - id: mem_openeye_sp_128x256
+    type: global_buffer
+    area: 0.34236144
+    throughput: 1.0
+    delay: 1.559
+    fmax_mhz: 641.4368184733805
+    capacity_bits: 32768
+    bandwidth_bits: 256
+    metadata:
+      accesses_per_cycle: 1
+      ports: 1RW
+      read_energy_pj: 22.5255
+      write_energy_pj: 53.8895
+    power_model:
+      <<: *characterization
+      p_idle_w: 0.0643203
+      p_active_w: 0.0741659
+
+  - id: mem_openeye_sp_128x1024
+    type: global_buffer
+    area: 1.39024656
+    throughput: 1.0
+    delay: 1.693
+    fmax_mhz: 590.6674542232723
+    capacity_bits: 131072
+    bandwidth_bits: 1024
+    metadata:
+      accesses_per_cycle: 1
+      ports: 1RW
+      read_energy_pj: 105.165
+      write_energy_pj: 235.475
+    power_model:
+      <<: *characterization
+      p_idle_w: 0.256265
+      p_active_w: 0.299709
+
+  - id: dram_platform_512b
+    type: dram
+    area: 0.0
+    throughput: 1.0
+    delay: 5.0
+    fmax_mhz: 200.0
+    bandwidth_bits: 512
+    metadata:
+      accesses_per_cycle: 1
+      scope: shared_platform
+      disclaimer: Synthetic off-chip DRAM plus PHY proxy; recalibrated by the full flow.
+    power_model:
+      source: synthetic
+      activity_method: access_rate
+      reference_frequency_mhz: 200.0
+      p_idle_w: 0.02
+      p_active_w: 1.812
+      voltage_v: 1.2
+      temperature_c: 25.0
+      corner: NCCOM
+      metadata:
+        idle_mode: refresh, PHY and standby
+        active_mode: One 512-bit access per cycle.
+        dynamic_energy_pj_per_access: 8960.0

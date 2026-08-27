@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from typing import Any
+import warnings
 
 from talos.evaluation.workload_activity import (
     LayerActivity,
@@ -112,6 +113,8 @@ def validate_workload_aware_exploration(
     if profile is None:
         raise ValueError(f"{WORKLOAD_REQUIREMENTS_ERROR} Activity profile is missing.")
 
+    _warn_pe_format_mismatches(spec, profile)
+
     if dram_ip.power_model is None:
         raise ValueError(
             f"{WORKLOAD_REQUIREMENTS_ERROR} DRAM IP {dram_ip.id!r} has no power_model."
@@ -175,25 +178,6 @@ def _pe_power(
             f"insufficient_pe_capacity: layer {layer.layer_id!r} requires "
             f"{required_macs_per_cycle} MAC/cycle but selected PE instances "
             f"provide {available_macs_per_cycle}."
-        )
-    required_precision = max(
-        (
-            bits
-            for operand, bits in layer.operand_precision_bits.items()
-            if operand in {"I", "W"}
-        ),
-        default=None,
-    )
-    selected_precision = _positive_metadata(
-        component.ip.metadata,
-        "precision_bits",
-        component.ip.id,
-    )
-    if required_precision is not None and required_precision > selected_precision:
-        raise ValueError(
-            f"incompatible_precision: layer {layer.layer_id!r} requires "
-            f"{required_precision}-bit inputs but selected PE "
-            f"{component.ip.id!r} supports {selected_precision:g} bits."
         )
     model = _power_model(component)
     return (
@@ -343,6 +327,76 @@ def _positive_metadata(
             f"metadata {name!r}."
         )
     return value
+
+
+def _warn_pe_format_mismatches(
+    spec: Any,
+    profile: WorkloadActivityProfile,
+) -> None:
+    required_formats = {
+        numeric_format
+        for layer in profile.layers
+        for operand, numeric_format in (
+            layer.operand_numeric_formats.items()
+        )
+        if operand in {"I", "W"}
+    }
+    required_bits = {
+        bits
+        for layer in profile.layers
+        for operand, bits in layer.operand_precision_bits.items()
+        if operand in {"I", "W"}
+    }
+    if not required_formats and not required_bits:
+        return
+
+    mismatches: list[str] = []
+    seen: set[str] = set()
+    for gene in spec.genes:
+        if gene.component.type != "pe":
+            continue
+        for candidate in gene.candidates:
+            if candidate.id in seen:
+                continue
+            seen.add(candidate.id)
+            metadata = candidate.metadata or {}
+            numeric_format = metadata.get("numeric_format")
+            precision_bits = metadata.get("precision_bits")
+            format_matches = (
+                not required_formats
+                or (
+                    isinstance(numeric_format, str)
+                    and required_formats == {numeric_format}
+                )
+            )
+            bits_match = (
+                not required_bits
+                or (
+                    isinstance(precision_bits, (int, float))
+                    and math.isfinite(float(precision_bits))
+                    and required_bits == {float(precision_bits)}
+                )
+            )
+            if format_matches and bits_match:
+                continue
+            mismatches.append(
+                f"{candidate.id} "
+                f"({numeric_format or 'unknown'}, "
+                f"{precision_bits or 'unknown'} bits)"
+            )
+
+    if not mismatches:
+        return
+    formats = ", ".join(sorted(required_formats)) or "unknown"
+    bits = ", ".join(str(value) for value in sorted(required_bits))
+    warnings.warn(
+        "Workload PE format requirement "
+        f"({formats}; {bits or 'unknown'} bits) does not match: "
+        f"{', '.join(mismatches)}. These candidates are retained by "
+        "policy.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
 
 
 def _validate_selected_characterizations(

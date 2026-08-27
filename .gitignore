@@ -36,3 +36,7 @@ htmlcov/
 outputs/
 results/
 .talos_zigzag/
+*.md
+!READMe.md
+run_*
+plot_talos_pareto.py

@@ -11,8 +11,15 @@ import subprocess
 import tempfile
 from typing import IO, Any
 
-from talos.architecture.genome import GB_BW_OPTIONS, GB_SIZE_OPTIONS
+from talos.architecture.genome import (
+    DEFAULT_DRAM_BW_BITS,
+    GB_BW_OPTIONS,
+    GB_SIZE_OPTIONS,
+    RF_BW_OPTIONS,
+    RF_SIZE_OPTIONS,
+)
 from talos.ip.ip_characterization import IPBlock, PowerCharacterization
+from talos.ip.ip_pool import IPPool
 
 
 DEFAULT_TECHNOLOGY_NM = 65.0
@@ -22,6 +29,11 @@ RF_TO_MAC = 1.0
 GB_TO_MAC = 6.0
 DRAM_TO_MAC = 200.0
 CACTI_MIN_WORDS = 32
+CACTI_MIN_CAPACITY_BITS = 64 * 8
+DEFAULT_DRAM_ACCESSES_PER_CYCLE = 1.0
+DEFAULT_PLATFORM_DRAM_IDLE_POWER_W = 0.02
+DEFAULT_PE_IDLE_TO_MAC_RATIO = 0.1
+DEFAULT_MEMORY_CLOCK_IDLE_TO_ACCESS_RATIO = 0.1
 
 
 @dataclass(frozen=True)
@@ -30,7 +42,19 @@ class CactiMemoryCost:
     bandwidth_bits: int
     read_energy_pj_per_access: float
     write_energy_pj_per_access: float
+    standby_power_w: float = 0.0
     cacti_capacity_bits: int | None = None
+
+    @property
+    def physical_capacity_bits(self) -> int:
+        return self.cacti_capacity_bits or self.capacity_bits
+
+    @property
+    def average_access_energy_pj(self) -> float:
+        return (
+            self.read_energy_pj_per_access
+            + self.write_energy_pj_per_access
+        ) / 2
 
 
 @dataclass(frozen=True)
@@ -42,6 +66,15 @@ class Level1EnergyCalibration:
     reference_gb_write_energy_pj: float
     mac_energy_pj: float
     gb_costs: tuple[CactiMemoryCost, ...]
+    rf_costs: tuple[CactiMemoryCost, ...] = ()
+    pe_idle_to_mac_ratio: float = DEFAULT_PE_IDLE_TO_MAC_RATIO
+    memory_clock_idle_to_access_ratio: float = (
+        DEFAULT_MEMORY_CLOCK_IDLE_TO_ACCESS_RATIO
+    )
+
+    @property
+    def pe_idle_energy_pj_per_cycle(self) -> float:
+        return self.mac_energy_pj * self.pe_idle_to_mac_ratio
 
     @property
     def dram_energy_pj_per_16b(self) -> float:
@@ -61,6 +94,17 @@ class Level1EnergyCalibration:
             "DRAM",
         )
 
+    def memory_clock_idle_energy_pj_per_cycle(
+        self,
+        cost: CactiMemoryCost,
+    ) -> float:
+        words = cost.physical_capacity_bits / cost.bandwidth_bits
+        return (
+            self.memory_clock_idle_to_access_ratio
+            * cost.average_access_energy_pj
+            * words
+        )
+
     def gb_cost(
         self,
         capacity_bits: int,
@@ -77,19 +121,46 @@ class Level1EnergyCalibration:
             f"capacity={capacity_bits} bits, bandwidth={bandwidth_bits} bits."
         )
 
+    def rf_cost(
+        self,
+        capacity_bits: int,
+        bandwidth_bits: int,
+    ) -> CactiMemoryCost:
+        for cost in self.rf_costs:
+            if (
+                cost.capacity_bits == capacity_bits
+                and cost.bandwidth_bits == bandwidth_bits
+            ):
+                return cost
+        raise ValueError(
+            "Missing CACTI register-file cost for "
+            f"capacity={capacity_bits} bits, "
+            f"bandwidth={bandwidth_bits} bits."
+        )
+
     def to_dict(
         self,
         *,
         dram_bus_width_bits: int,
         dram_power_model: PowerCharacterization,
     ) -> dict[str, Any]:
-        overrides = [
+        gb_overrides = [
             {
                 "logical_capacity_bytes": cost.capacity_bits // 8,
                 "bandwidth_bits": cost.bandwidth_bits,
                 "cacti_capacity_bytes": cost.cacti_capacity_bits // 8,
             }
             for cost in self.gb_costs
+            if cost.cacti_capacity_bits is not None
+            and cost.cacti_capacity_bits != cost.capacity_bits
+        ]
+        rf_overrides = [
+            {
+                "logical_capacity_bytes": cost.capacity_bits // 8,
+                "bandwidth_bits": cost.bandwidth_bits,
+                "cacti_capacity_bytes": cost.cacti_capacity_bits // 8,
+            }
+            for cost in self.rf_costs
             if cost.cacti_capacity_bits is not None
             and cost.cacti_capacity_bits != cost.capacity_bits
         ]
@@ -100,6 +171,9 @@ class Level1EnergyCalibration:
             "reference_gb_read_energy_pj": self.reference_gb_read_energy_pj,
             "reference_gb_write_energy_pj": self.reference_gb_write_energy_pj,
             "mac_energy_pj": self.mac_energy_pj,
+            "pe_idle_energy_pj_per_cycle": (
+                self.pe_idle_energy_pj_per_cycle
+            ),
             "dram_energy_pj_per_16b": self.dram_energy_pj_per_16b,
             "dram_bus_width_bits": dram_bus_width_bits,
             "dram_energy_pj_per_access": self.dram_energy_pj_per_access(
@@ -107,12 +181,21 @@ class Level1EnergyCalibration:
             ),
             "derived_dram_p_idle_w": dram_power_model.p_idle_w,
             "derived_dram_p_active_w": dram_power_model.p_active_w,
-            "gb_physical_capacity_overrides": overrides,
+            "gb_physical_capacity_overrides": gb_overrides,
+            "rf_physical_capacity_overrides": rf_overrides,
             "ratios": {
                 "rf_to_mac": RF_TO_MAC,
                 "gb_to_mac": GB_TO_MAC,
                 "dram_to_mac": DRAM_TO_MAC,
+                "pe_idle_to_mac": self.pe_idle_to_mac_ratio,
+                "memory_clock_idle_to_access": (
+                    self.memory_clock_idle_to_access_ratio
+                ),
             },
+            "onchip_standby_model": (
+                "CACTI leakage plus abstract clock-idle "
+                "per powered word"
+            ),
         }
 
     def _scaled_word_energy(
@@ -134,9 +217,28 @@ def characterize_level1_energy(
     cacti_master_path: str | Path | None = None,
     *,
     technology_nm: float = DEFAULT_TECHNOLOGY_NM,
+    pe_idle_to_mac_ratio: float = DEFAULT_PE_IDLE_TO_MAC_RATIO,
+    memory_clock_idle_to_access_ratio: float = (
+        DEFAULT_MEMORY_CLOCK_IDLE_TO_ACCESS_RATIO
+    ),
 ) -> Level1EnergyCalibration:
     if not math.isfinite(technology_nm) or technology_nm <= 0:
         raise ValueError("CACTI technology_nm must be finite and > 0.")
+    if (
+        not math.isfinite(pe_idle_to_mac_ratio)
+        or pe_idle_to_mac_ratio < 0
+    ):
+        raise ValueError(
+            "pe_idle_to_mac_ratio must be finite and >= 0."
+        )
+    if (
+        not math.isfinite(memory_clock_idle_to_access_ratio)
+        or memory_clock_idle_to_access_ratio < 0
+    ):
+        raise ValueError(
+            "memory_clock_idle_to_access_ratio must be finite "
+            "and >= 0."
+        )
     technology_um = technology_nm / 1000
     source = (
         Path(cacti_master_path).resolve()
@@ -154,7 +256,7 @@ def characterize_level1_energy(
     with tempfile.TemporaryDirectory(prefix="talos_cacti_") as temporary:
         master = Path(temporary) / "cacti_master"
         shutil.copytree(source, master)
-        costs = tuple(
+        gb_costs = tuple(
             _characterize_memory(
                 master,
                 role="global_buffer",
@@ -164,6 +266,17 @@ def characterize_level1_energy(
             )
             for capacity_bits in GB_SIZE_OPTIONS
             for bandwidth_bits in GB_BW_OPTIONS
+        )
+        rf_costs = tuple(
+            _characterize_memory(
+                master,
+                role="register_file",
+                capacity_bits=capacity_bits,
+                bandwidth_bits=bandwidth_bits,
+                technology_um=technology_um,
+            )
+            for capacity_bits in RF_SIZE_OPTIONS
+            for bandwidth_bits in RF_BW_OPTIONS
         )
         reference = _characterize_memory(
             master,
@@ -192,7 +305,12 @@ def characterize_level1_energy(
         reference_gb_read_energy_pj=reference.read_energy_pj_per_access,
         reference_gb_write_energy_pj=reference.write_energy_pj_per_access,
         mac_energy_pj=mac_energy_pj,
-        gb_costs=costs,
+        gb_costs=gb_costs,
+        rf_costs=rf_costs,
+        pe_idle_to_mac_ratio=pe_idle_to_mac_ratio,
+        memory_clock_idle_to_access_ratio=(
+            memory_clock_idle_to_access_ratio
+        ),
     )
 
 
@@ -201,7 +319,7 @@ def parse_cacti_output(
     *,
     expected_capacity_bytes: int,
     expected_bandwidth_bits: int,
-) -> tuple[float, float]:
+) -> tuple[float, float, float]:
     close = False
     if isinstance(source, (str, Path)):
         handle = Path(source).open(encoding="utf-8", newline="")
@@ -232,6 +350,7 @@ def parse_cacti_output(
         "Output width (bits)",
         "Dynamic read energy (nJ)",
         "Dynamic write energy (nJ)",
+        "Standby leakage per bank(mW)",
     )
     missing = [name for name in required if name not in row]
     if missing:
@@ -242,6 +361,9 @@ def parse_cacti_output(
         bandwidth_bits = int(float(row["Output width (bits)"]))
         read_energy_pj = float(row["Dynamic read energy (nJ)"]) * 1000
         write_energy_pj = float(row["Dynamic write energy (nJ)"]) * 1000
+        standby_power_w = (
+            float(row["Standby leakage per bank(mW)"]) / 1000
+        )
     except (TypeError, ValueError) as exc:
         raise ValueError("CACTI result contains an invalid required value.") from exc
 
@@ -263,7 +385,12 @@ def parse_cacti_output(
             raise ValueError(
                 f"CACTI {name} energy must be finite and positive, got {value}."
             )
-    return read_energy_pj, write_energy_pj
+    if not math.isfinite(standby_power_w) or standby_power_w < 0:
+        raise ValueError(
+            "CACTI standby power must be finite and non-negative, "
+            f"got {standby_power_w}."
+        )
+    return read_energy_pj, write_energy_pj, standby_power_w
 
 
 def calibrate_synthetic_dram_power_model(
@@ -328,6 +455,77 @@ def calibrate_synthetic_dram_ip(
     )
 
 
+def resolve_dram_ip(
+    pool: IPPool,
+    calibration: Level1EnergyCalibration,
+) -> IPBlock:
+    """Use a pool DRAM, or build the shared platform proxy."""
+    dram_ips = pool.by_type("dram")
+    if len(dram_ips) > 1:
+        raise ValueError(
+            "The IP pool may contain at most one DRAM IP."
+        )
+    if dram_ips:
+        return calibrate_synthetic_dram_ip(
+            dram_ips[0],
+            calibration,
+        )
+
+    models = [
+        ip.power_model
+        for ip in pool.ip_blocks
+        if ip.power_model is not None
+    ]
+    points = {
+        (
+            model.reference_frequency_mhz,
+            model.voltage_v,
+            model.temperature_c,
+            model.corner,
+        )
+        for model in models
+    }
+    if len(points) != 1:
+        raise ValueError(
+            "The fixed platform DRAM requires one common pool "
+            "operating point."
+        )
+    frequency, voltage, temperature, corner = points.pop()
+    dram_ip = IPBlock(
+        id="dram_platform_512b",
+        type="dram",
+        area=0.0,
+        throughput=1.0,
+        delay=1000.0 / frequency,
+        fmax_mhz=frequency,
+        bandwidth_bits=DEFAULT_DRAM_BW_BITS,
+        metadata={
+            "accesses_per_cycle": (
+                DEFAULT_DRAM_ACCESSES_PER_CYCLE
+            ),
+            "scope": "shared_platform",
+        },
+        power_model=PowerCharacterization(
+            source="synthetic",
+            activity_method="access_rate",
+            reference_frequency_mhz=frequency,
+            p_idle_w=DEFAULT_PLATFORM_DRAM_IDLE_POWER_W,
+            p_active_w=DEFAULT_PLATFORM_DRAM_IDLE_POWER_W,
+            voltage_v=voltage,
+            temperature_c=temperature,
+            corner=corner,
+            metadata={
+                "idle_mode": "refresh, PHY and standby",
+                "dynamic_energy": "Eyeriss 200x MAC proxy",
+            },
+        ),
+    )
+    return calibrate_synthetic_dram_ip(
+        dram_ip,
+        calibration,
+    )
+
+
 def write_energy_calibration(
     path: str | Path,
     calibration: Level1EnergyCalibration,
@@ -375,10 +573,11 @@ def _characterize_memory(
     if bandwidth_bits <= 0 or bandwidth_bits % 8:
         raise ValueError(f"{role} bandwidth must be a positive whole byte.")
 
-    # ponytail: CACTI requires at least 32 words; keep the logical size and
-    # model only the unavoidable physical overprovisioning.
+    # ponytail: CACTI requires at least 64 bytes and 32 words.
+    # Keep the logical size and model only physical overprovisioning.
     cacti_capacity_bits = max(
         capacity_bits,
+        CACTI_MIN_CAPACITY_BITS,
         bandwidth_bits * CACTI_MIN_WORDS,
     )
     capacity_bytes = cacti_capacity_bits // 8
@@ -420,7 +619,11 @@ def _characterize_memory(
     if not output_path.is_file():
         raise RuntimeError(f"CACTI produced no output ({context}).")
     try:
-        read_energy_pj, write_energy_pj = parse_cacti_output(
+        (
+            read_energy_pj,
+            write_energy_pj,
+            standby_power_w,
+        ) = parse_cacti_output(
             output_path,
             expected_capacity_bytes=capacity_bytes,
             expected_bandwidth_bits=bandwidth_bits,
@@ -432,6 +635,7 @@ def _characterize_memory(
         bandwidth_bits=bandwidth_bits,
         read_energy_pj_per_access=read_energy_pj,
         write_energy_pj_per_access=write_energy_pj,
+        standby_power_w=standby_power_w,
         cacti_capacity_bits=cacti_capacity_bits,
     )
 

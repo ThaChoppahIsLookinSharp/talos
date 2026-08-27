@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import csv
+import importlib.util
 from itertools import product
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 import tempfile
 import unittest
@@ -10,15 +13,22 @@ from unittest.mock import patch
 import numpy as np
 from pymoo.optimize import minimize
 
+import examples.full_flow_example as full_flow
 from examples.constraint_sweep import build_command, build_parser, sweep_cases
 from examples.full_flow_example import (
+    LEVEL1_SCREENING_OBJECTIVES,
     Level1Candidate,
     SUMMARY_FIELDNAMES,
     build_summary_rows,
     iter_level1_candidates,
     main as full_flow_main,
+    load_level1_handoff,
     parse_args,
+    rank_full_flow_rows,
     select_level1_candidates,
+    write_summary_csv,
+    write_winner_artifacts,
+    write_level1_handoff,
 )
 from examples.objective_sweep import (
     build_command as build_objective_sweep_command,
@@ -26,7 +36,15 @@ from examples.objective_sweep import (
     objective_cases,
 )
 from talos.architecture.abstract_accelerator import AbstractAccelerator, AbstractComponent
-from talos.architecture.genome import GENOME_LENGTH, GENOME_SPEC, decode_genome
+from talos.architecture.genome import (
+    GB_BW_OPTIONS,
+    GB_SIZE_OPTIONS,
+    GENOME_LENGTH,
+    GENOME_SPEC,
+    RF_BW_OPTIONS,
+    RF_SIZE_OPTIONS,
+    decode_genome,
+)
 from talos.architecture.level1_importer import abstract_accelerator_from_level1_config
 from talos.constraints import (
     UserConstraints,
@@ -34,17 +52,48 @@ from talos.constraints import (
     estimated_inferences_per_second,
 )
 from talos.evaluation.workload_activity import LayerActivity, WorkloadActivityProfile
+from talos.evaluation.area_calibration import Level1AreaCalibration
 from talos.evaluation.zigzag_evaluator import EvaluationResult
 from talos.ga.pymoo_runner import TalosPymooProblem, _build_nsga2
 from talos.ip import IPBlock, IPPool, PowerCharacterization
 from talos.level2 import Level2Evaluator
 from talos.level2.genome import ImplementedAccelerator, ImplementedComponent
 from talos.level2.problem import Level2PymooProblem
+from talos.level2.exhaustive_runner import _assign_augmented_tchebycheff_scores
 from talos.level2.runner import _build_solution_rows
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SYNTHETIC_POOL_PATH = REPO_ROOT / "configs" / "ip_pool_synthetic_65nm.yaml"
+
+
+AREA_CALIBRATION = Level1AreaCalibration(
+    pe_rf_area_mm2={
+        (size, bandwidth): 1.0
+        for size in RF_SIZE_OPTIONS
+        for bandwidth in RF_BW_OPTIONS
+    },
+    gb_area_mm2={
+        (size, bandwidth): 1.0
+        for size in GB_SIZE_OPTIONS
+        for bandwidth in GB_BW_OPTIONS
+    },
+)
+
+
+def summary_ranking_row(
+    architecture_index: int,
+    solution_index: int,
+    objective_values: list[float],
+) -> dict[str, object]:
+    return {
+        "architecture_index": architecture_index,
+        "level2_solution_index": solution_index,
+        "level2_objective_values": objective_values,
+        "level2_global_augmented_tchebycheff_score": None,
+        "level2_valid": True,
+        "constraints_satisfied": True,
+    }
 
 
 class FakeAdapter:
@@ -90,6 +139,52 @@ def implemented_ip(
 
 
 class UserConstraintsTests(unittest.TestCase):
+    def test_level1_handoff_round_trip_preserves_profile(self) -> None:
+        profile = WorkloadActivityProfile(
+            layers=(
+                LayerActivity(
+                    layer_id="layer",
+                    latency_cycles=10,
+                    mac_count=5,
+                    spatially_used_pes=1,
+                    memory_accesses={"dram": 2},
+                ),
+            )
+        )
+        genome = [0] * GENOME_LENGTH
+        config = decode_genome(genome)
+        candidate = Level1Candidate(
+            source_index=3,
+            raw_genome=genome,
+            objective_values=[1, 2, 3],
+            discrete_genome=genome,
+            architecture_config=config,
+            accelerator=abstract_accelerator_from_level1_config(config),
+            activity_profile=profile,
+            evaluation=EvaluationResult(
+                latency=10,
+                energy=2,
+                area=3,
+                valid=True,
+                activity_profile=profile,
+                mapping_objective="EDP",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "handoff.json"
+            write_level1_handoff(path, [candidate], "level1.csv")
+            restored, csv_path = load_level1_handoff(
+                path,
+                decode_genome=decode_genome,
+                abstract_accelerator_from_level1_config=(
+                    abstract_accelerator_from_level1_config
+                ),
+            )
+
+        self.assertEqual(csv_path, "level1.csv")
+        self.assertEqual(restored[0].raw_genome, genome)
+        self.assertEqual(restored[0].activity_profile, profile)
+
     def test_full_flow_can_fill_pareto_set_from_feasible_final_population(self) -> None:
         population = SimpleNamespace(
             get=lambda name: {
@@ -134,6 +229,7 @@ class UserConstraintsTests(unittest.TestCase):
         problem = TalosPymooProblem(
             workload_path="unused.onnx",
             objective_names=["latency"],
+            area_calibration=AREA_CALIBRATION,
             adapter=FakeAdapter(
                 EvaluationResult(latency=10.0, energy=1.0, area=1.0, valid=True)
             ),
@@ -150,6 +246,7 @@ class UserConstraintsTests(unittest.TestCase):
         problem = TalosPymooProblem(
             workload_path="unused.onnx",
             objective_names=["energy"],
+            area_calibration=AREA_CALIBRATION,
             adapter=FakeAdapter(
                 EvaluationResult(latency=1.0, energy=1.0, area=1.0, valid=True)
             ),
@@ -296,8 +393,137 @@ class UserConstraintsTests(unittest.TestCase):
 
         self.assertEqual(rows[0]["level1_latency"], 10.0)
         self.assertEqual(rows[0]["level1_energy"], 20.0)
-        self.assertEqual(rows[0]["level1_area_proxy"], 30.0)
+        self.assertEqual(rows[0]["level1_physical_area_mm2"], 30.0)
         self.assertEqual(rows[0]["workload_throughput_ips"], "")
+
+    def test_full_flow_uses_one_global_score_across_architectures(self) -> None:
+        local_a = [
+            {"objective_values": [1, 10]},
+            {"objective_values": [3, 30]},
+        ]
+        local_b = [
+            {"objective_values": [10, 100]},
+            {"objective_values": [30, 300]},
+        ]
+        _assign_augmented_tchebycheff_scores(local_a)
+        _assign_augmented_tchebycheff_scores(local_b)
+        self.assertEqual(local_a[0]["augmented_tchebycheff_score"], 0.0)
+        self.assertEqual(local_b[0]["augmented_tchebycheff_score"], 0.0)
+
+        rows = [
+            summary_ranking_row(2, 1, [30, 300]),
+            summary_ranking_row(1, 1, [3, 30]),
+            summary_ranking_row(2, 0, [10, 100]),
+            summary_ranking_row(1, 0, [1, 10]),
+        ]
+        rank_full_flow_rows(rows, ["area", "workload_latency_s"])
+
+        self.assertEqual(
+            (rows[0]["architecture_index"], rows[0]["level2_solution_index"]),
+            (1, 0),
+        )
+        self.assertEqual(
+            rows[0]["level2_global_augmented_tchebycheff_score"], 0.0
+        )
+        self.assertGreater(
+            rows[2]["level2_global_augmented_tchebycheff_score"], 0.0
+        )
+        self.assertLess(
+            rows[1]["level2_global_augmented_tchebycheff_score"],
+            rows[2]["level2_global_augmented_tchebycheff_score"],
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_summary_csv(Path(tmp), rows)
+            with path.open(newline="", encoding="utf-8") as handle:
+                written = list(csv.DictReader(handle))
+        self.assertIn("level2_global_augmented_tchebycheff_score", written[0])
+        self.assertEqual(
+            written[0]["level2_global_augmented_tchebycheff_score"], "0.0"
+        )
+
+    def test_full_flow_single_objective_orders_raw_values_without_score(self) -> None:
+        rows = [
+            summary_ranking_row(2, 0, [20]),
+            summary_ranking_row(1, 0, [10]),
+        ]
+
+        rank_full_flow_rows(rows, ["energy"])
+
+        self.assertEqual(rows[0]["level2_objective_values"], [10])
+        self.assertTrue(
+            all(
+                row["level2_global_augmented_tchebycheff_score"] is None
+                for row in rows
+            )
+        )
+
+    def test_winner_artifacts_copy_selected_zigzag_mapping(self) -> None:
+        row = summary_ranking_row(5, 2, [1])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            zigzag_source = root / "source"
+            zigzag_source.mkdir()
+            (zigzag_source / "layer_complete.json").write_text("{}")
+            candidate = SimpleNamespace(
+                source_index=5,
+                evaluation=SimpleNamespace(zigzag_output_dir=str(zigzag_source)),
+            )
+
+            artifact_dir = write_winner_artifacts(
+                root / "results", [row], [candidate]
+            )
+
+            self.assertEqual(artifact_dir, root / "results" / "winner")
+            self.assertTrue((artifact_dir / "architecture.json").is_file())
+            self.assertTrue((artifact_dir / "zigzag" / "layer_complete.json").is_file())
+
+    def test_legacy_flow_delegates_to_shared_full_flow_ranking(self) -> None:
+        path = REPO_ROOT / "examples" / "full_flow_legacy_objectives.py"
+        spec = importlib.util.spec_from_file_location("legacy_full_flow_test", path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        original_objectives = full_flow.LEVEL1_SCREENING_OBJECTIVES
+        try:
+            with patch.dict(sys.modules, {"full_flow_example": full_flow}):
+                spec.loader.exec_module(module)
+            with (
+                patch.object(
+                    full_flow,
+                    "parse_args",
+                    return_value=SimpleNamespace(
+                        level1_objectives=["energy", "area"]
+                    ),
+                ),
+                patch.object(full_flow, "main", return_value=7) as shared_main,
+            ):
+                self.assertEqual(module.main(), 7)
+                shared_main.assert_called_once_with()
+                self.assertEqual(
+                    full_flow.LEVEL1_SCREENING_OBJECTIVES,
+                    ["energy", "area"],
+                )
+                self.assertIs(module.full_flow.rank_full_flow_rows, rank_full_flow_rows)
+        finally:
+            full_flow.LEVEL1_SCREENING_OBJECTIVES = original_objectives
+
+        first_run = [
+            summary_ranking_row(0, 0, [1, 10]),
+            summary_ranking_row(1, 0, [2, 20]),
+        ]
+        second_run = [
+            summary_ranking_row(0, 0, [100, 1000]),
+            summary_ranking_row(1, 0, [200, 2000]),
+        ]
+        rank_full_flow_rows(first_run, ["energy", "area"])
+        rank_full_flow_rows(second_run, ["energy", "area"])
+        self.assertEqual(
+            first_run[0]["level2_global_augmented_tchebycheff_score"], 0.0
+        )
+        self.assertEqual(
+            second_run[0]["level2_global_augmented_tchebycheff_score"], 0.0
+        )
 
     def test_level1_selection_skips_physically_infeasible_candidates(self) -> None:
         pool = IPPool.from_yaml(SYNTHETIC_POOL_PATH)
@@ -388,6 +614,40 @@ class UserConstraintsTests(unittest.TestCase):
         self.assertEqual(
             [candidate.discrete_genome for candidate in candidates],
             [[0, 0, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0, 0]],
+        )
+
+    def test_level1_selection_keeps_pareto_extremes_and_diversity(
+        self,
+    ) -> None:
+        candidates = select_level1_candidates(
+            level1_genomes=[
+                [0, 0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0, 0],
+                [2, 0, 0, 0, 0, 0, 0],
+                [3, 0, 0, 0, 0, 0, 0],
+            ],
+            level1_objectives=[
+                [1.0, 10.0],
+                [10.0, 1.0],
+                [5.0, 5.0],
+                [9.0, 9.0],
+            ],
+            level1_objective_names=["energy", "area"],
+            max_architectures=3,
+            pool=IPPool.from_yaml(SYNTHETIC_POOL_PATH),
+            decode_genome=decode_genome,
+            gene_bounds=lambda: [
+                (0, len(spec.options) - 1)
+                for spec in GENOME_SPEC
+            ],
+            abstract_accelerator_from_level1_config=(
+                abstract_accelerator_from_level1_config
+            ),
+        )
+
+        self.assertEqual(
+            [candidate.source_index for candidate in candidates],
+            [0, 1, 2],
         )
 
     def test_level2_solution_rows_are_deduplicated_by_selected_ips(self) -> None:
@@ -570,6 +830,10 @@ class UserConstraintsTests(unittest.TestCase):
                         return_value=object(),
                     ) as characterize,
                     patch(
+                        "talos.evaluation.area_calibration.characterize_level1_area",
+                        return_value=AREA_CALIBRATION,
+                    ),
+                    patch(
                         "talos.evaluation.cacti_costs.calibrate_synthetic_dram_ip",
                         return_value=dram,
                     ),
@@ -577,7 +841,7 @@ class UserConstraintsTests(unittest.TestCase):
                     patch(
                         "talos.ga.pymoo_runner.run_nsga2_pymoo",
                         return_value=level1_result,
-                    ),
+                    ) as run_level1,
                     patch("talos.evaluation.zigzag_evaluator.ZigZagEvaluator"),
                     patch(
                         "examples.full_flow_example.select_level1_candidates",
@@ -587,6 +851,10 @@ class UserConstraintsTests(unittest.TestCase):
                 ):
                     self.assertEqual(full_flow_main(), expected_code)
                     characterize.assert_called_once_with(technology_nm=65)
+                    self.assertEqual(
+                        run_level1.call_args.kwargs["objective_names"],
+                        LEVEL1_SCREENING_OBJECTIVES,
+                    )
 
     def test_constraint_sweep_builds_seven_worker_aware_commands(self) -> None:
         cases = sweep_cases()
@@ -635,7 +903,7 @@ class UserConstraintsTests(unittest.TestCase):
         )
         self.assertEqual(
             cases[-1].level1_objectives,
-            ["energy", "area", "latency"],
+            ["energy", "latency", "area"],
         )
         self.assertEqual(
             cases[-1].level2_objectives,

@@ -4,12 +4,17 @@ import argparse
 from pathlib import Path
 
 from talos.constraints import UserConstraints
+from talos.evaluation.area_calibration import (
+    Level1AreaCalibration,
+    characterize_level1_area,
+)
 from talos.evaluation.cacti_costs import (
     Level1EnergyCalibration,
     characterize_level1_energy,
 )
 from talos.evaluation.objective_adapter import ObjectiveAdapter
 from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
+from talos.ip import IPPool
 
 
 def repo_root() -> Path:
@@ -26,6 +31,7 @@ def run_smoke_test(
     zigzag_lpf_limit: int = 1,
     zigzag_spatial_mappings: int = 1,
     energy_calibration: Level1EnergyCalibration | None = None,
+    area_calibration: Level1AreaCalibration | None = None,
 ) -> None:
     energy_calibration = energy_calibration or characterize_level1_energy()
     evaluator = ZigZagEvaluator(
@@ -34,6 +40,7 @@ def run_smoke_test(
         lpf_limit=zigzag_lpf_limit,
         nb_spatial_mappings_generated=zigzag_spatial_mappings,
         energy_calibration=energy_calibration,
+        area_calibration=area_calibration,
     )
     adapter = ObjectiveAdapter(evaluator)
 
@@ -103,6 +110,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=default_workload_path(),
         help="Path to the ONNX workload file",
+    )
+    parser.add_argument(
+        "--ip-pool",
+        type=Path,
+        required=True,
+        help="Path to the characterized IP pool used for Level 1 area.",
     )
     parser.add_argument(
         "--debug",
@@ -183,9 +196,12 @@ def main() -> None:
     args = parser.parse_args()
 
     workload_path = args.workload.resolve()
+    ip_pool_path = args.ip_pool.resolve()
 
     if not workload_path.exists():
         raise FileNotFoundError(f"Workload file not found: {workload_path}")
+    if not ip_pool_path.exists():
+        raise FileNotFoundError(f"IP pool file not found: {ip_pool_path}")
 
     physical_constraints = (
         args.max_area_mm2,
@@ -197,6 +213,12 @@ def main() -> None:
             "area, power and frequency constraints require Level 2; "
             "use examples/full_flow_example.py instead."
         )
+
+    ip_pool = IPPool.from_yaml(ip_pool_path)
+    energy_calibration = characterize_level1_energy(
+        technology_nm=ip_pool.technology_nm,
+    )
+    area_calibration = characterize_level1_area(ip_pool)
 
     if args.ga:
         from talos.ga.pymoo_runner import run_nsga2_pymoo
@@ -229,7 +251,8 @@ def main() -> None:
             zigzag_lpf_limit=args.zigzag_lpf_limit,
             zigzag_spatial_mappings=args.zigzag_spatial_mappings,
             constraints=constraints,
-            energy_calibration=characterize_level1_energy(),
+            energy_calibration=energy_calibration,
+            area_calibration=area_calibration,
         )
 
         print("\npymoo NSGA-II run finished.")
@@ -243,7 +266,8 @@ def main() -> None:
             debug=args.debug,
             zigzag_lpf_limit=args.zigzag_lpf_limit,
             zigzag_spatial_mappings=args.zigzag_spatial_mappings,
-            energy_calibration=characterize_level1_energy(),
+            energy_calibration=energy_calibration,
+            area_calibration=area_calibration,
         )
 
 

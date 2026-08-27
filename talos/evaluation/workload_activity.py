@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 import math
 from typing import Any
@@ -15,6 +16,9 @@ class LayerActivity:
     spatially_used_pes: int
     memory_accesses: dict[str, float]
     operand_precision_bits: dict[str, int] = field(default_factory=dict)
+    operand_numeric_formats: dict[str, str] = field(
+        default_factory=dict
+    )
 
     def __post_init__(self) -> None:
         if not self.layer_id.strip():
@@ -40,6 +44,17 @@ class LayerActivity:
         ):
             raise ValueError(
                 "LayerActivity operand precisions must be named positive integers."
+            )
+        if not isinstance(self.operand_numeric_formats, dict) or any(
+            not name.strip()
+            or not isinstance(numeric_format, str)
+            or not numeric_format.strip()
+            for name, numeric_format in (
+                self.operand_numeric_formats.items()
+            )
+        ):
+            raise ValueError(
+                "LayerActivity numeric formats must be named strings."
             )
 
 
@@ -109,10 +124,24 @@ _MEMORY_BINDINGS = {
 }
 
 
-def extract_workload_activity_profile(cme: Any) -> WorkloadActivityProfile:
+def extract_workload_activity_profile(
+    cme: Any,
+    *,
+    operand_numeric_formats_by_layer: Mapping[
+        int,
+        Mapping[str, str],
+    ]
+    | None = None,
+) -> WorkloadActivityProfile:
     """Normalize ZigZag 3.8.5 per-layer CMEs into Talos activity data."""
     raw_layers = cme if isinstance(cme, list) else [cme]
-    layers = tuple(_extract_layer_activity(_unwrap_cme(item)) for item in raw_layers)
+    layers = tuple(
+        _extract_layer_activity(
+            _unwrap_cme(item),
+            operand_numeric_formats_by_layer,
+        )
+        for item in raw_layers
+    )
     return WorkloadActivityProfile(layers=layers)
 
 
@@ -123,7 +152,14 @@ def _unwrap_cme(value: Any) -> Any:
     return value
 
 
-def _extract_layer_activity(cme: Any) -> LayerActivity:
+def _extract_layer_activity(
+    cme: Any,
+    operand_numeric_formats_by_layer: Mapping[
+        int,
+        Mapping[str, str],
+    ]
+    | None = None,
+) -> LayerActivity:
     layer = cme.layer
     memory_accesses: dict[str, float] = {}
 
@@ -163,6 +199,12 @@ def _extract_layer_activity(cme: Any) -> LayerActivity:
                 {},
             ).items()
         },
+        operand_numeric_formats=dict(
+            (operand_numeric_formats_by_layer or {}).get(
+                int(layer.id),
+                {},
+            )
+        ),
     )
 
 

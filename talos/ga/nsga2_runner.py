@@ -15,6 +15,7 @@ from nsga2.evolution import Evolution
 from nsga2.problem import Problem
 
 from talos.architecture.genome import GENOME_LENGTH, gene_bounds, gene_names
+from talos.evaluation.area_calibration import Level1AreaCalibration
 from talos.evaluation.cacti_costs import (
     Level1EnergyCalibration,
     characterize_level1_energy,
@@ -45,6 +46,7 @@ class NSGA2RunResult:
 
 def run_nsga2(
     workload_path: str,
+    area_calibration: Level1AreaCalibration,
     objective_names: list[str] | None = None,
     num_of_generations: int = 3,
     num_of_individuals: int = 10,
@@ -79,6 +81,7 @@ def run_nsga2(
         opt=zigzag_mapping_objective,
         debug=debug,
         energy_calibration=energy_calibration,
+        area_calibration=area_calibration,
     )
     output_dir = Path(results_dir) if results_dir is not None else Path.cwd() / "results"
     calibration_path = write_energy_calibration(
@@ -171,7 +174,7 @@ def _write_results_csv(
         "zigzag_mapping_objective",
         "latency",
         "energy",
-        "area",
+        "physical_area_mm2",
         "valid",
     ]
     fieldnames.extend(f"raw_{name}" for name in names)
@@ -201,7 +204,7 @@ def _write_results_csv(
                 ),
                 "latency": result.latency,
                 "energy": result.energy,
-                "area": result.area,
+                "physical_area_mm2": result.area,
                 "valid": result.valid,
             }
 
@@ -235,6 +238,12 @@ def main() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description="Run a small nsga2 package demo.")
     parser.add_argument(
+        "--ip-pool",
+        type=Path,
+        required=True,
+        help="Path to the characterized IP pool used for Level 1 area.",
+    )
+    parser.add_argument(
         "--workload",
         type=Path,
         default=repo_root / "workloads" / "alexnet.onnx",
@@ -242,13 +251,24 @@ def main() -> None:
     )
     args = parser.parse_args()
     workload = args.workload.expanduser().resolve()
+    from talos.evaluation.area_calibration import characterize_level1_area
+    from talos.evaluation.cacti_costs import characterize_level1_energy
+    from talos.ip import IPPool
+
+    ip_pool = IPPool.from_yaml(args.ip_pool.expanduser().resolve())
+    area_calibration = characterize_level1_area(ip_pool)
+    energy_calibration = characterize_level1_energy(
+        technology_nm=ip_pool.technology_nm,
+    )
 
     result = run_nsga2(
         workload_path=str(workload),
+        area_calibration=area_calibration,
         objective_names=DEFAULT_OBJECTIVES,
         num_of_generations=3,
         num_of_individuals=10,
         seed=1,
+        energy_calibration=energy_calibration,
     )
 
     print(f"Final Pareto front size: {len(result.final_front)}")

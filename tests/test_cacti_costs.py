@@ -12,6 +12,8 @@ from unittest.mock import patch
 from talos.architecture.genome import (
     GB_BW_OPTIONS,
     GB_SIZE_OPTIONS,
+    RF_BW_OPTIONS,
+    RF_SIZE_OPTIONS,
     default_genome,
     decode_genome,
 )
@@ -26,7 +28,9 @@ from talos.evaluation.cacti_costs import (
     calibrate_synthetic_dram_power_model,
     characterize_level1_energy,
     parse_cacti_output,
+    resolve_dram_ip,
 )
+from talos.evaluation.area_calibration import Level1AreaCalibration
 from talos.evaluation.zigzag_evaluator import ZigZagEvaluator
 from talos.ga.pymoo_runner import TalosPymooProblem, run_nsga2_pymoo
 from talos.ip import IPBlock, IPPool, PowerCharacterization
@@ -46,10 +50,37 @@ def calibration() -> Level1EnergyCalibration:
                 bandwidth_bits=bandwidth,
                 read_energy_pj_per_access=size / 8192 + bandwidth / 64,
                 write_energy_pj_per_access=size / 4096 + bandwidth / 32,
+                standby_power_w=0.002,
             )
             for size in GB_SIZE_OPTIONS
             for bandwidth in GB_BW_OPTIONS
         ),
+        rf_costs=tuple(
+            CactiMemoryCost(
+                size,
+                bandwidth,
+                size / 64 + bandwidth / 8,
+                size / 32 + bandwidth / 4,
+                standby_power_w=0.001,
+            )
+            for size in RF_SIZE_OPTIONS
+            for bandwidth in RF_BW_OPTIONS
+        ),
+    )
+
+
+def area_calibration() -> Level1AreaCalibration:
+    return Level1AreaCalibration(
+        pe_rf_area_mm2={
+            (size, bandwidth): 1.0
+            for size in RF_SIZE_OPTIONS
+            for bandwidth in RF_BW_OPTIONS
+        },
+        gb_area_mm2={
+            (size, bandwidth): 1.0
+            for size in GB_SIZE_OPTIONS
+            for bandwidth in GB_BW_OPTIONS
+        },
     )
 
 
@@ -70,30 +101,36 @@ class CactiParserTests(unittest.TestCase):
     def test_parser_ignores_secondary_na_and_converts_nj_to_pj(self) -> None:
         source = io.StringIO(
             "Capacity (bytes), Output width (bits), Dynamic search energy (nJ),"
-            " Dynamic read energy (nJ), Dynamic write energy (nJ)\n"
-            "1024,64,N/A,0.0125,0.025\n"
+            " Dynamic read energy (nJ), Dynamic write energy (nJ),"
+            " Standby leakage per bank(mW)\n"
+            "1024,64,N/A,0.0125,0.025,2.5\n"
         )
 
-        read, write = parse_cacti_output(
+        read, write, standby = parse_cacti_output(
             source,
             expected_capacity_bytes=1024,
             expected_bandwidth_bits=64,
         )
 
-        self.assertEqual((read, write), (12.5, 25))
+        self.assertEqual((read, write, standby), (12.5, 25, 0.0025))
 
     def test_parser_rejects_mismatch_ambiguity_and_invalid_energy(self) -> None:
         header = (
             "Capacity (bytes),Output width (bits),"
-            "Dynamic read energy (nJ),Dynamic write energy (nJ)\n"
+            "Dynamic read energy (nJ),Dynamic write energy (nJ),"
+            "Standby leakage per bank(mW)\n"
         )
         for body, message in (
-            ("2048,64,1,1\n", "capacity mismatch"),
-            ("1024,128,1,1\n", "bandwidth mismatch"),
-            ("1024,64,1,1\n1024,64,2,2\n", "exactly one"),
-            ("1024,64,N/A,1\n", "invalid required"),
-            ("1024,64,nan,1\n", "finite and positive"),
-            ("1024,64,0,1\n", "finite and positive"),
+            ("2048,64,1,1,1\n", "capacity mismatch"),
+            ("1024,128,1,1,1\n", "bandwidth mismatch"),
+            (
+                "1024,64,1,1,1\n1024,64,2,2,2\n",
+                "exactly one",
+            ),
+            ("1024,64,N/A,1,1\n", "invalid required"),
+            ("1024,64,nan,1,1\n", "finite and positive"),
+            ("1024,64,0,1,1\n", "finite and positive"),
+            ("1024,64,1,1,nan\n", "finite and non-negative"),
         ):
             with self.subTest(body=body):
                 with self.assertRaisesRegex(ValueError, message):
@@ -122,7 +159,7 @@ class CactiParserTests(unittest.TestCase):
 
 
 class EnergyCalibrationTests(unittest.TestCase):
-    def test_characterizes_25_gbs_and_one_reference_once(self) -> None:
+    def test_characterizes_memory_catalog(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             master = Path(temporary) / "cacti_master"
             master.mkdir()
@@ -143,6 +180,7 @@ class EnergyCalibrationTests(unittest.TestCase):
                     bandwidth_bits,
                     energy,
                     energy + 12,
+                    standby_power_w=0.001,
                 )
 
             with (
@@ -158,9 +196,10 @@ class EnergyCalibrationTests(unittest.TestCase):
                 result = characterize_level1_energy(master, technology_nm=40)
 
         self.assertEqual(copytree.call_count, 1)
-        self.assertEqual(characterize.call_count, 26)
+        self.assertEqual(characterize.call_count, 62)
         self.assertEqual(result.technology_nm, 40)
         self.assertEqual(len(result.gb_costs), 25)
+        self.assertEqual(len(result.rf_costs), 36)
         self.assertEqual(
             {
                 (cost.capacity_bits, cost.bandwidth_bits)
@@ -170,6 +209,17 @@ class EnergyCalibrationTests(unittest.TestCase):
                 (size, bandwidth)
                 for size in GB_SIZE_OPTIONS
                 for bandwidth in GB_BW_OPTIONS
+            },
+        )
+        self.assertEqual(
+            {
+                (cost.capacity_bits, cost.bandwidth_bits)
+                for cost in result.rf_costs
+            },
+            {
+                (size, bandwidth)
+                for size in RF_SIZE_OPTIONS
+                for bandwidth in RF_BW_OPTIONS
             },
         )
         reference_call = characterize.call_args_list[-1].kwargs
@@ -268,6 +318,67 @@ class EnergyCalibrationTests(unittest.TestCase):
             4.5,
         )
 
+    def test_pool_dram_has_priority_over_fallback(self) -> None:
+        pe = IPBlock(
+            id="pe",
+            type="pe",
+            area=1,
+            throughput=1,
+            delay=1,
+            fmax_mhz=500,
+            power_model=replace(
+                synthetic_dram_model(),
+                source="genus",
+            ),
+        )
+        dram = IPBlock(
+            id="measured_dram",
+            type="dram",
+            area=0,
+            throughput=1,
+            delay=1,
+            fmax_mhz=500,
+            bandwidth_bits=256,
+            metadata={"accesses_per_cycle": 2},
+            power_model=replace(
+                synthetic_dram_model(),
+                source="measured",
+            ),
+        )
+
+        self.assertIs(
+            resolve_dram_ip(IPPool([pe, dram]), calibration()),
+            dram,
+        )
+
+    def test_platform_dram_is_shared_idle_proxy(self) -> None:
+        pe = IPBlock(
+            id="pe",
+            type="pe",
+            area=1,
+            throughput=1,
+            delay=1,
+            fmax_mhz=500,
+            power_model=replace(
+                synthetic_dram_model(),
+                source="genus",
+            ),
+        )
+
+        dram = resolve_dram_ip(IPPool([pe]), calibration())
+
+        self.assertEqual(dram.id, "dram_platform_512b")
+        self.assertEqual(dram.bandwidth_bits, 512)
+        self.assertEqual(dram.power_model.p_idle_w, 0.02)
+        self.assertEqual(
+            dram.power_model.reference_frequency_mhz,
+            500,
+        )
+        self.assertGreater(
+            dram.power_model.p_active_w,
+            dram.power_model.p_idle_w,
+        )
+
 
 class Level1EnergyIntegrationTests(unittest.TestCase):
     def test_calibration_failure_prevents_workers_and_pymoo(self) -> None:
@@ -282,6 +393,7 @@ class Level1EnergyIntegrationTests(unittest.TestCase):
         ):
             run_nsga2_pymoo(
                 workload_path="unused.onnx",
+                area_calibration=area_calibration(),
                 pop_size=2,
                 n_gen=1,
                 n_workers=2,
@@ -296,6 +408,7 @@ class Level1EnergyIntegrationTests(unittest.TestCase):
         problem = TalosPymooProblem(
             workload_path="unused.onnx",
             objective_names=["energy"],
+            area_calibration=area_calibration(),
             adapter=object(),
             energy_calibration=result,
         )
@@ -304,6 +417,7 @@ class Level1EnergyIntegrationTests(unittest.TestCase):
 
         self.assertIsNone(state["_adapter"])
         self.assertIs(state["energy_calibration"], result)
+        self.assertEqual(state["area_calibration"], area_calibration())
 
     def test_accelerator_uses_calibrated_mac_rf_gb_and_dram(self) -> None:
         result = calibration()
@@ -313,6 +427,7 @@ class Level1EnergyIntegrationTests(unittest.TestCase):
                 workdir=temporary,
                 dram_power_model=synthetic_dram_model(),
                 energy_calibration=result,
+                area_calibration=area_calibration(),
             )
             config = decode_genome(default_genome())
             accelerator = evaluator._build_accelerator(config)
@@ -321,10 +436,19 @@ class Level1EnergyIntegrationTests(unittest.TestCase):
             accelerator["operational_array"]["unit_energy"],
             result.mac_energy_pj,
         )
-        expected_rf = result.rf_energy_pj_per_access(config.rf_bw_bits)
+        expected_rf = result.rf_cost(
+            config.rf_size_bits,
+            config.rf_bw_bits,
+        )
         for name in ("rf_i1", "rf_i2", "rf_o"):
-            self.assertEqual(accelerator["memories"][name]["r_cost"], expected_rf)
-            self.assertEqual(accelerator["memories"][name]["w_cost"], expected_rf)
+            self.assertEqual(
+                accelerator["memories"][name]["r_cost"],
+                expected_rf.read_energy_pj_per_access,
+            )
+            self.assertEqual(
+                accelerator["memories"][name]["w_cost"],
+                expected_rf.write_energy_pj_per_access,
+            )
         gb = accelerator["memories"]["gb"]
         expected_gb = result.gb_cost(config.gb_size_bits, config.gb_bw_bits)
         self.assertEqual(gb["r_cost"], expected_gb.read_energy_pj_per_access)
@@ -344,6 +468,7 @@ class Level1EnergyIntegrationTests(unittest.TestCase):
                 workload="unused.onnx",
                 workdir=temporary,
                 energy_calibration=result,
+                area_calibration=area_calibration(),
             )
             first = evaluator._build_accelerator(
                 decode_genome([0, 0, 0, 0, 0, 0, 0])
@@ -374,6 +499,7 @@ class RealCactiSmokeTests(unittest.TestCase):
         result = characterize_level1_energy(source)
 
         self.assertEqual(len(result.gb_costs), 25)
+        self.assertEqual(len(result.rf_costs), 36)
         self.assertEqual(
             result.gb_cost(8192, 512).cacti_capacity_bits,
             16384,
@@ -391,6 +517,10 @@ class RealCactiSmokeTests(unittest.TestCase):
             self.assertGreater(cost.write_energy_pj_per_access, 0)
             self.assertTrue(math.isfinite(cost.read_energy_pj_per_access))
             self.assertTrue(math.isfinite(cost.write_energy_pj_per_access))
+            self.assertGreater(cost.standby_power_w, 0)
+        for cost in result.rf_costs:
+            self.assertGreater(cost.standby_power_w, 0)
+            self.assertTrue(math.isfinite(cost.standby_power_w))
         self.assertGreater(result.reference_gb_read_energy_pj, 0)
         self.assertGreater(result.reference_gb_write_energy_pj, 0)
 

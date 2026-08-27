@@ -9,6 +9,7 @@ ips:
     fmax_mhz: 550.0
     metadata:
       precision_bits: 8
+      numeric_format: int8
       macs_per_cycle: 1
       disclaimer: "Synthetic values for tests only; not TSMC65 characterization."
     power_model:
@@ -32,6 +33,7 @@ ips:
     fmax_mhz: 900.0
     metadata:
       precision_bits: 8
+      numeric_format: int8
       macs_per_cycle: 1
       disclaimer: "Synthetic values for tests only; not TSMC65 characterization."
     power_model:

@@ -1,0 +1,174 @@
+workloads:
+
+  talos_alexnet:
+    model: alexnet_int16.onnx
+    accelerator: Talos
+    network: AlexNet
+    input: [1, 3, 227, 227]
+    batch: 1
+    scope: full
+    precision:
+      format: integer
+      weights: 16
+      activations: 16
+    sparsity:
+      enabled: false
+
+
+  eyeriss:
+    model: eyeriss_alexnet_conv_int16.onnx
+    accelerator: Eyeriss
+    network: AlexNet
+    input: [4, 3, 227, 227]
+    batch: 4
+    scope: conv_only
+    precision:
+      format: integer
+      weights: 16
+      activations: 16
+    sparsity:
+      enabled: false
+
+
+  envision:
+    model: alexnet_conv_b1_227_envision_unpu.onnx
+    accelerator: ENVISION
+    network: AlexNet
+    input: [1, 3, 227, 227]
+    batch: 1
+    scope: conv_only
+
+    # Precisión del benchmark, por capa.
+    # El ONNX se utiliza como geometría.
+    precision:
+      format: integer
+      per_layer:
+        conv1: {weights: 7, activations: 4}
+        conv2: {weights: 7, activations: 7}
+        conv3: {weights: 8, activations: 9}
+        conv4: {weights: 9, activations: 8}
+        conv5: {weights: 9, activations: 8}
+
+    sparsity:
+      enabled: false
+
+    note: >
+      INT7 e INT9 no existen como tipos tensoriales ONNX estándar.
+      La precisión debe pasarse al modelo de costes por separado.
+
+
+  unpu:
+    model: alexnet_conv_b1_227_envision_unpu.onnx
+    accelerator: UNPU
+    network: AlexNet
+    input: [1, 3, 227, 227]
+    batch: 1
+    scope: conv_only
+    precision:
+      format: integer
+      weights: 8
+      activations: 16
+    sparsity:
+      enabled: false
+
+    note: >
+      Batch 1 es nuestra normalización local para disponer de una
+      representación comparable. No debe citarse como parámetro
+      experimental del chip salvo que se documente aparte.
+
+
+  eyeriss_v2_alexnet:
+    model: alexnet_int16.onnx
+    accelerator: Eyeriss_v2
+    network: AlexNet
+    input: [1, 3, 227, 227]
+    batch: 1
+    scope: full
+
+    # El fichero local sirve como GEOMETRÍA nominal de 724.4M MAC.
+    # En la evaluación de Eyeriss v2 se emplea W8/A8.
+    precision:
+      format: integer
+      weights: 8
+      activations: 8
+      partial_sums: 20
+
+    sparsity:
+      enabled: true
+      encoded_in_local_onnx: false
+
+    note: >
+      El punto publicado de 278.7 inf/s y ~1.50 mJ/inference
+      corresponde a sparse AlexNet. La geometría local es densa;
+      la sparsity debe modelarse separadamente.
+
+
+  eyeriss_v2_mobilenet:
+    model: mobilenetv1_0p5_128_int8_eyerissv2_dense.onnx
+    accelerator: Eyeriss_v2
+    network: MobileNetV1
+    width_multiplier: 0.5
+    input: [1, 3, 128, 128]
+    batch: 1
+    scope: full
+
+    precision:
+      format: integer
+      weights: 8
+      activations: 8
+      partial_sums: 20
+
+    sparsity:
+      enabled: true
+      encoded_in_local_onnx: false
+
+    note: >
+      ONNX generado localmente con la geometría estándar MobileNet V1
+      0.5 / 128: 49.160192 M MAC por imagen, que redondea a los 49.2 M
+      MAC nominales de Eyeriss v2. Se cuantiza a QLinearConv con
+      activaciones UINT8 y pesos INT8. Los pesos y datos de calibración
+      son sintéticos porque este fichero se usa como workload para DSE,
+      no como checkpoint de accuracy. El benchmark publicado de
+      Eyeriss v2 utiliza además una variante sparse.
+
+
+  tinyvers:
+    model: resnet8_cifar10_int8_tinyvers.onnx
+    accelerator: TinyVers
+    network: ResNet8
+    dataset: CIFAR10
+    input: [1, 3, 32, 32]
+    batch: 1
+    scope: full
+
+    precision:
+      format: integer
+      weights: 8
+      activations: 8
+
+    sparsity:
+      enabled: false
+
+
+  sauria:
+    model: vgg16_conv_fp16_sauria.onnx
+    accelerator: SAURIA
+    network: VGG16
+    input: [1, 3, 224, 224]
+    batch: 1
+    scope: convolutional_part
+
+    precision:
+      format: floating_point
+      weights: 16
+      activations: 16
+      datatype: FP16
+
+    sparsity:
+      enabled: false
+
+    note: >
+      VGG16 es uno de los workloads evaluados por SAURIA.
+      Exportamos la parte convolucional porque SAURIA es un
+      acelerador GeMM/convolutional. Batch 1 es la representación
+      local usada para Talos/ZigZag.

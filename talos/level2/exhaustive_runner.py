@@ -12,9 +12,9 @@ from talos.level2.problem import Level2PymooProblem
 from talos.level2.runner import (
     DEFAULT_LEVEL2_OBJECTIVES,
     _evaluate_solution,
-    _solution_sort_key,
     _write_solutions_csv,
 )
+from talos.level2.scoring import augmented_tchebycheff_scores
 
 
 @dataclass(frozen=True)
@@ -66,7 +66,23 @@ def run_level2_exhaustive(
         if row["valid"] and row["constraints_satisfied"]:
             rows.append(row)
 
-    rows.sort(key=_solution_sort_key)
+    if len(objectives) == 1:
+        for row in rows:
+            row["augmented_tchebycheff_score"] = None
+        rows.sort(
+            key=lambda row: (
+                float(row["objective_values"][0]),
+                tuple(float(value) for value in row["genome"]),
+            )
+        )
+    else:
+        _assign_augmented_tchebycheff_scores(rows)
+        rows.sort(
+            key=lambda row: (
+                float(row["augmented_tchebycheff_score"]),
+                tuple(float(value) for value in row["genome"]),
+            )
+        )
 
     csv_path = None
     if save_csv:
@@ -84,3 +100,13 @@ def run_level2_exhaustive(
         explored_combinations=explored_combinations,
         csv_path=csv_path,
     )
+
+
+def _assign_augmented_tchebycheff_scores(rows: list[dict[str, Any]]) -> None:
+    # This ideal point is local to one architecture. Such scores are not
+    # comparable across architectures; the full flow recomputes a global score.
+    scores = augmented_tchebycheff_scores(
+        [row["objective_values"] for row in rows]
+    )
+    for row, score in zip(rows, scores, strict=True):
+        row["augmented_tchebycheff_score"] = score

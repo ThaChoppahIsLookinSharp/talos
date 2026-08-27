@@ -2,7 +2,9 @@
 
 TALOS is a two-level design-space exploration tool for DNN accelerators. It combines workload evaluation with ZigZag, multi-objective search with NSGA-II, and physical IP selection from a characterized component pool.
 
-The project is a research prototype: the included IP values are examples or synthetic data, not sign-off silicon characterization.
+The project is a research prototype. Characterized IP values are
+post-synthesis research data, not sign-off silicon characterization;
+the example pools and DRAM proxy remain synthetic.
 
 ## What TALOS does
 
@@ -64,9 +66,11 @@ Each gene is an integer index into a fixed catalog:
 | `gb_bw_code` | 64, 128, 256, 512, 1024 bits/cycle |
 | `gb_served_dims_code` | none, D1, D2, or D1+D2 |
 
-DRAM is a fixed platform IP rather than a search gene. Its bus width, access
-rate, and idle/active power come from the single `type: dram` entry in the IP
-pool; standalone Level 1 runs default to a 512-bit synthetic DRAM.
+DRAM is a fixed platform IP rather than a search gene. If the pool has
+one `type: dram` entry, TALOS gives it priority. Otherwise it uses
+one shared 512-bit platform proxy for every precision. The proxy
+allows one access per cycle and uses `p_idle_w = 0.02` for refresh,
+PHY and standby.
 
 Before starting any Level 1 workers, TALOS runs the CACTI binary bundled with
 ZigZag at the `technology_nm` declared by the selected IP pool. It characterizes
@@ -78,6 +82,11 @@ worker. CACTI requires a physical depth of at least 32 words, so the logical
 2 KiB, 4 KiB, and 4 KiB physical macros respectively. ZigZag still sees their
 original logical capacities, and the overprovisioning is recorded in
 `energy_calibration.json`.
+
+Level 1 also precomputes 36 PE-plus-RF area costs and 25 global-buffer area
+costs from the selected characterized IP pool. Candidate evaluation then uses
+two table lookups, counting RFs embedded in composite PEs only once and keeping
+the global-buffer replication implied by `gb_served_dims`.
 
 ### Level 1 to Level 2
 
@@ -99,7 +108,7 @@ genes to the referenced RF IPs: the RFs remain visible for capacity, bandwidth,
 ZigZag accesses, and power, but their area, delay, throughput, and `fmax` are not
 counted a second time.
 
-The exhaustive strategy evaluates every compatible combination up to `--level2-exhaustive-max-combinations`. NSGA-II is preferable when the Cartesian product is large.
+The exhaustive strategy evaluates every compatible combination up to `--level2-exhaustive-max-combinations`. After invalid and constrained candidates are removed, a single objective is ranked directly by its minimum. For multiple objectives, it uses the augmented Tchebycheff score `r_i(x) = ln(f_i(x) / f_i_min)` and `S(x) = 100 * [max_i r_i(x) + 0.05 * sum_i r_i(x)]`. This measures relative multiplicative degradation from the ideal, prioritizes the worst degradation, and uses the small sum term to distinguish similar candidates. The exhaustive CSV's ideal is local to one Level-1 architecture; the full-flow summary recomputes its ideal across every feasible physical implementation from every architecture in that invocation because local scores are not globally comparable. Ranking only orders the full feasible set: it adds no pruning or Pareto filtering. NSGA-II is preferable when the Cartesian product is large.
 
 The full flow sends Pareto solutions first and can fill `--max-architectures` with distinct feasible individuals from the final Level 1 population. The objective sweep starts with three architectures per objective case.
 When physical constraints are present, it also screens each Level 1 candidate
@@ -115,15 +124,15 @@ selected Level 2 strategy instead of being rejected by the prefilter.
 | --- | --- |
 | `latency` | ZigZag workload latency |
 | `energy` | ZigZag workload energy |
-| `area` | Current analytical area proxy |
+| `area` | Minimum compatible characterized IP area in mm² |
 | `edp` | energy × latency |
 | `eap` | energy × area |
 | `alp` | area × latency |
 
-The analytical area proxy counts the PE array, all three per-PE RF families,
-and the actual number of global-buffer replicas implied by
-`gb_served_dims`. It is useful for Level 1 ranking, but physical constraints
-still use characterized Level 2 area.
+The Level 1 area is a pool-specific lower bound. It selects the cheapest
+compatible PE/RF bundle and global-buffer macro, including composite PEs, while
+Level 2 remains authoritative for complete physical combinations and
+constraints.
 
 The Level 1 objectives also select ZigZag's mapping criterion. Energy objectives
 use `energy`, latency objectives use `latency`, and a mix of both uses `EDP`;
@@ -191,8 +200,8 @@ P_average = E_inference / inference_time
 
 For example, if ZigZag maps a layer onto 16 of `N` PEs, the PE term is exactly `16 × p_active_w + (N - 16) × p_idle_w`. Register-file, global-buffer, and DRAM utilization comes from the accesses in the ZigZag mapping. DRAM remains external to Level 2 on-chip area and on-chip critical timing, but its power and energy are included and its own `fmax_mhz` must still reach the reference frequency. Its `p_active_w` means continuous transfers at the declared bus width and `accesses_per_cycle`; `p_idle_w` means no transfers.
 
-For a synthetic DRAM, TALOS reconstructs `p_active_w` from the Level 1 Eyeriss
-access energy:
+For a synthetic DRAM, TALOS reconstructs `p_active_w` from the Level 1
+Eyeriss access energy:
 
 ```text
 p_active_w = p_idle_w
@@ -201,19 +210,36 @@ p_active_w = p_idle_w
     × accesses_per_cycle
 ```
 
-This keeps the dynamic energy per DRAM access identical in Level 1 and Level 2
-while preserving its idle power and PVT metadata. A non-synthetic DRAM is not
-rewritten because measured characterization takes priority. PE power in Level 2
-always remains the IP pool or Genus `p_idle_w`/`p_active_w`; it is never replaced
-by the Level 1 MAC proxy.
+This keeps the dynamic energy per DRAM access identical in Level 1 and
+Level 2 while preserving idle power. When the pool contains a DRAM,
+its characterization takes priority. Otherwise the fixed platform
+proxy inherits the pool operating point and uses the global 0.02 W
+idle value. This value is a synthetic system-level assumption, not a
+measured DRAM characterization. PE power in Level 2 always remains the
+IP pool or Genus `p_idle_w`/`p_active_w`; it is never replaced by the
+Level 1 MAC proxy.
 
 Memory accesses are normalized from the abstract Level 1 port width to the selected IP width. Every valid combination uses one common characterized `reference_frequency_mhz` and `reference_voltage_v`. Power values are used exactly as characterized, without frequency scaling or interpolation. `physical_fmax_mhz` is the minimum selected-IP `fmax_mhz`; it must meet the reference frequency but never becomes the operating frequency. `physical_critical_delay` and `timing_margin_mhz = physical_fmax_mhz - reference_frequency_mhz` are reported separately.
 
-Level 2 rejects a combination when a selected IP is characterized at an incompatible operating point, misses the reference frequency, cannot provide the mapped PE MACs/cycle, has incompatible operand precision, or cannot sustain the mapped memory accesses/cycle. It preserves the ZigZag cycles rather than inserting stalls or remapping.
+TALOS infers activation, weight and output representations from the
+ONNX tensor types before calling ZigZag. The visible output type is
+also used for the accumulator, so a FLOAT model uses 32-bit operands
+and outputs while an INT8 model uses 8-bit operands and outputs. TALOS
+does not quantize a model or fall back to ZigZag's implicit 8-bit
+defaults. The Level 1 MAC energy remains the configured calibration
+and is not scaled by precision.
+
+Level 2 rejects a combination when a selected IP is characterized at
+an incompatible operating point, misses the reference frequency,
+cannot provide the mapped PE MACs/cycle, or cannot sustain the mapped
+memory accesses/cycle. It preserves the ZigZag cycles rather than
+inserting stalls or remapping.
 
 For each layer, Level 2 also checks that mapped MACs/cycle fit the active PEs'
-`macs_per_cycle`, that PE input precision is compatible, and that normalized
-memory accesses/cycle fit the selected instances and `accesses_per_cycle`.
+`macs_per_cycle` and that normalized memory accesses/cycle fit the
+selected instances and `accesses_per_cycle`. A PE format or precision
+mismatch produces one aggregated warning but does not remove the
+candidate from the exploration.
 Current ZigZag profiles expose aggregate physical accesses per memory level, so
 read/write and operand contention are intentionally checked as one shared rate.
 
@@ -265,7 +291,7 @@ All commands below are run from the repository root.
 ### Smoke-test one Level 1 genome
 
 ```bash
-python -m talos
+python -m talos --ip-pool configs/ip_pool_synthetic_65nm.yaml
 ```
 
 Use `--debug` to show ZigZag output and print the generated mapping and accelerator YAML.
@@ -275,6 +301,7 @@ Use `--debug` to show ZigZag output and print the generated mapping and accelera
 ```bash
 python -m talos --ga \
   --workload workloads/alexnet.onnx \
+  --ip-pool configs/ip_pool_synthetic_65nm.yaml \
   --objectives latency energy area \
   --pop-size 12 \
   --generations 4 \
@@ -386,6 +413,23 @@ python examples/objective_sweep.py \
 
 These objective-sweep defaults are calibrated to leave a useful feasible region in the included synthetic pool; they are not silicon design targets. The constraint sweep intentionally uses much tighter values as regression cases. Use `--no-constraints` to compare objectives without area, power, or frequency limits.
 
+### Latest characterized sweeps
+
+The FP16 and FP32 sweeps used the first ResNet18 layer. Both completed
+all seven objective cases with 45600 valid rows and 42336 unique
+physical implementations.
+
+| best observed | FP16 | FP32 |
+|---|---:|---:|
+| area | 0.451629 mm2 | 0.573476 mm2 |
+| average power | 0.293842 W | 0.329406 W |
+| inference energy | 0.0208520 J | 0.0243084 J |
+| throughput | 757.93 inf./s | 757.93 inf./s |
+
+The FP32 run matches the workload representation. The FP16 comparison
+is descriptive because TALOS retained the format mismatch by policy.
+Both full reports are stored under `results/sweep_reports`.
+
 ## IP pool format
 
 IP pools are YAML files with one technology for the whole pool and an `ips`
@@ -394,15 +438,36 @@ list:
 ```yaml
 technology_nm: 65
 ips:
-  # PE, RF, GB and DRAM entries
+  # PE, RF and GB entries; DRAM is optional
 ```
 
-The two included pools are:
+`characterizations/ip_catalog_65nm.yaml` is the source of truth for
+the 27 characterized 65 nm IPs. It preserves the characterization
+output, including areas in um2 and the original numeric-format labels.
+The runtime pools convert areas to mm2 and normalize those labels
+to `int8`, `uint8`, `float16`, or `float32`. The integer characterized
+pool includes the shared 512-bit platform DRAM proxy; the FP16 and FP32
+pools let the full flow inject the same proxy.
+
+The five included pools are:
 
 - `configs/ip_pool_example.yaml`: illustrative values for small examples.
 - `configs/ip_pool_synthetic_65nm.yaml`: synthetic values used by tests and sweeps; they are not foundry characterization.
+- `configs/ip_pool_characterized_65nm.yaml`: post-synthesis TSMC65 PE
+  characterization for all integer PEs and all 15 memories, plus the shared
+  512-bit platform DRAM proxy.
+- `configs/ip_pool_fp16_65nm.yaml`: the two FP16 PEs and the RF and GB
+  characterization from the supplied 65 nm pool.
+- `configs/ip_pool_fp32_65nm.yaml`: the three FP32 PEs and all 15
+  memories with valid numeric PPA from the supplied characterization.
 
-The synthetic pool contains 2 PE, 4 register-file, 7 global-buffer choices, and one fixed DRAM. It covers every Level 1 genome and produces at most 896 compatible Level 2 combinations for one architecture, so exhaustive selection is normally preferable. Add variants only from a coherent characterization flow rather than inventing extra points for population size.
+The synthetic pool contains 2 PE, 4 register-file, 7 global-buffer
+choices and one fixed DRAM used by direct Level 2 tests. It covers
+every Level 1 genome and produces at most 896 compatible Level 2
+combinations for one architecture, so exhaustive selection is
+normally preferable. Add variants only from a coherent
+characterization flow rather than inventing extra points for
+population size.
 Its 65 nm name matches the Level 1 CACTI technology; all pool PPA values remain
 explicit approximations rather than foundry characterization.
 
@@ -418,6 +483,7 @@ ips:
     fmax_mhz: 900.0
     metadata:
       precision_bits: 8
+      numeric_format: int8
       macs_per_cycle: 1
     power_model:
       source: synthetic
@@ -430,9 +496,11 @@ ips:
       corner: tt
 ```
 
-`metadata.macs_per_cycle` and `metadata.precision_bits` validate the frozen
-mapping. The generic `throughput` field is retained for legacy local-IP
-objectives and is not used as inference throughput.
+`metadata.macs_per_cycle` validates the frozen mapping.
+`precision_bits` and `numeric_format` describe the PE and are compared
+with the inferred ONNX representation. A mismatch is reported but
+remains eligible. The generic `throughput` field is retained for
+legacy local-IP objectives and is not used as inference throughput.
 
 If that PE characterization already includes RF RTL, declare the covered roles
 and reference ordinary RF entries from the same pool:
@@ -447,6 +515,7 @@ ips:
     fmax_mhz: 800.0
     metadata:
       precision_bits: 8
+      numeric_format: int8
       macs_per_cycle: 1
     included_rfs:
       rf_i1: rf_512b_64b
@@ -493,7 +562,8 @@ abstract PE component (`pe_array`).
 
 Memory IPs additionally use `capacity_bits`, `bandwidth_bits`, and `metadata.accesses_per_cycle`.
 
-The pool must contain one DRAM characterization:
+The pool may contain one DRAM characterization to override the fixed
+platform proxy:
 
 ```yaml
   - id: dram_ddr_512b
@@ -516,9 +586,11 @@ The pool must contain one DRAM characterization:
       corner: tt
 ```
 
-This synthetic `p_active_w` represents one 512-bit transfer each cycle for the
-whole external-memory subsystem, including the PHY. Replace it with a measured
-point for the target memory and access pattern; vendor tools such as the
+Without this entry, TALOS creates a 512-bit proxy with one access per
+cycle. Its dynamic power comes from the Level 1 Eyeriss ratio and its
+0.02 W idle power represents refresh, PHY and standby. Both are
+system-level assumptions. Replace them with a measured point for the
+target memory and access pattern; vendor tools such as the
 [Micron DRAM Power Calculator](https://www.micron.com/sales-support/design-tools/dram-power-calculator)
 are suitable calibration sources.
 
@@ -533,7 +605,8 @@ Workload-aware exploration requires each selected IP to provide:
 - `fmax_mhz`;
 - `p_idle_w` and `p_active_w`;
 - `voltage_v`;
-- `macs_per_cycle` and `precision_bits` for PEs;
+- `macs_per_cycle` for PEs;
+- `precision_bits` and `numeric_format` for PE compatibility warnings;
 - `accesses_per_cycle` for memories;
 - compatible voltage, temperature, and process corner.
 
@@ -633,8 +706,11 @@ python examples/objective_sweep.py --help
 - The MAC, RF, and DRAM costs are 65 nm, 16-bit Eyeriss proxies; MAC energy is not scaled for 8-bit operation.
 - CACTI models the GB SRAM but not the FIFOs included in the Eyeriss GB ratio.
 - Level 1 does not yet model NoC energy, MAC/RF leakage, or a persistent CACTI cache.
-- Level 1 area is an analytical proxy unless a backend provides a physical area result.
-- DRAM is a fixed platform characterization and is excluded only from Level 2 on-chip area; its workload power and energy are included.
+- Level 1 area excludes DRAM, NoC, wiring and arbitration because they are not
+  selectable components in the current abstract accelerator graph.
+- DRAM is a fixed platform characterization. A pool entry overrides
+  the shared proxy; otherwise all precisions use the same 512-bit,
+  0.02 W idle model. Its workload power and energy are included.
 - All compatible candidate IPs in a workload-aware search must share one characterization frequency and PVT point; characterization tables and interpolation are not implemented.
 - Memory capacity validation is aggregate per layer and memory level because the current profile does not retain independent read/write ports or operand contention.
 - Composite IP modeling currently covers only a PE with embedded RF roles; generic nested IP bundles are intentionally unsupported.
