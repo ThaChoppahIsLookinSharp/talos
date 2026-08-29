@@ -41,6 +41,7 @@ class Level2PymooProblem(ElementwiseProblem):
         objective_names: list[str],
         constraints: UserConstraints | None = None,
         activity_profile: WorkloadActivityProfile | None = None,
+        elementwise_runner: Any | None = None,
     ) -> None:
         self.accelerator = accelerator
         self.ip_pool = ip_pool
@@ -82,6 +83,10 @@ class Level2PymooProblem(ElementwiseProblem):
         bounds = self.spec.gene_bounds()
         xl = [float(lower) for lower, _upper in bounds]
         xu = [float(upper) for _lower, upper in bounds]
+        runner_kwargs = (
+            {} if elementwise_runner is None
+            else {"elementwise_runner": elementwise_runner}
+        )
 
         super().__init__(
             n_var=len(self.spec.genes),
@@ -92,6 +97,7 @@ class Level2PymooProblem(ElementwiseProblem):
             vtype=int,
             xl=xl,
             xu=xu,
+            **runner_kwargs,
         )
 
     def _evaluate(
