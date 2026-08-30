@@ -23,6 +23,175 @@ the example pools and DRAM proxy remain synthetic.
    - Supports area, power, latency, and frequency constraints.
    - Includes ready-to-run constraint and objective sweeps.
 
+## Installation
+
+Python 3.13 is the tested version; the repository `shell.nix` pins `python313`
+for the same reason. `git` must be on `PATH` because `requirements.txt` pins
+`nsga-2` to a GitHub commit, and the CACTI binary bundled with ZigZag needs a
+working `libstdc++` at runtime.
+
+```bash
+git clone https://github.com/ThaChoppahIsLookinSharp/talos.git
+cd talos
+
+python3.13 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+TALOS is not installed as a package: `python -m talos` and the `examples/`
+scripts resolve their imports from the repository root, so run every command in
+this README from there.
+
+On NixOS, `nix-shell` reads `shell.nix`, which provides Python 3.13, exposes
+`libstdc++` through `LD_LIBRARY_PATH`, and activates `.venv`. A venv created
+from `/run/current-system/sw/bin/python3` follows system upgrades; if
+`python -m talos` starts failing with `ModuleNotFoundError: No module named
+'yaml'` after one, the interpreter has changed under the venv. Delete `.venv`
+and recreate it with the commands above.
+
+### Check the installation
+
+```bash
+python -m unittest discover -s tests   # 114 tests, about 10 s
+python -m talos --help
+python examples/full_flow_example.py --help
+```
+
+## Quick start
+
+All commands below are run from the repository root. They use the bundled
+AlexNet ONNX model and the synthetic 65 nm pool. Other ONNX models live under
+`workloads/` and are described in `workloads/workloads.yaml`; the other pools
+are listed in [IP pool format](#ip-pool-format).
+
+### Smoke-test one Level 1 genome
+
+```bash
+python -m talos --ip-pool configs/ip_pool_synthetic_65nm.yaml
+```
+
+This characterizes the Level 1 CACTI and area tables once, evaluates a single
+fixed genome with ZigZag and prints every Level 1 objective for it. Expect
+a few minutes on a laptop; almost all of it is the one-off CACTI
+characterization, which every later command repeats. Use
+`--debug` to show ZigZag output and print the generated mapping and
+accelerator YAML.
+
+### Run Level 1 NSGA-II
+
+```bash
+python -m talos --ga \
+  --workload workloads/alexnet.onnx \
+  --ip-pool configs/ip_pool_synthetic_65nm.yaml \
+  --objectives latency energy area \
+  --pop-size 12 \
+  --generations 4 \
+  --workers 4 \
+  --seed 1 \
+  --zigzag-lpf-limit 1 \
+  --zigzag-spatial-mappings 1 \
+  --results-dir results/level1_demo
+```
+
+`--workers` parallelizes Level 1 candidate evaluation. Larger ZigZag LPF and spatial-mapping limits explore more mappings but increase runtime.
+
+### Run the complete Level 1 → Level 2 flow
+
+```bash
+python examples/full_flow_example.py \
+  --workload workloads/alexnet.onnx \
+  --ip-pool configs/ip_pool_synthetic_65nm.yaml \
+  --level1-pop-size 12 \
+  --level1-generations 3 \
+  --level2-objectives area energy workload_latency_s \
+  --level2-strategy nsga2 \
+  --level2-pop-size 24 \
+  --level2-generations 4 \
+  --max-architectures 4 \
+  --workers 4 \
+  --seed 1 \
+  --results-dir results/full_flow_demo
+```
+
+This is the main entry point when Level 2 metrics or physical constraints are needed.
+Level 1 always screens the fixed energy–latency–area Pareto set in this flow;
+`--level1-objectives` is still accepted but deprecated. Use
+`examples/full_flow_legacy_objectives.py` with the same arguments to force a
+different Level 1 objective set.
+
+### Run with physical constraints
+
+```bash
+python examples/full_flow_example.py \
+  --workload workloads/alexnet.onnx \
+  --ip-pool configs/ip_pool_synthetic_65nm.yaml \
+  --level2-objectives area energy workload_latency_s \
+  --max-latency-cycles 100000000 \
+  --max-area-mm2 6.0 \
+  --max-power-w 1.2 \
+  --min-frequency-mhz 600 \
+  --level1-pop-size 24 \
+  --level1-generations 3 \
+  --level2-pop-size 24 \
+  --level2-generations 4 \
+  --max-architectures 8 \
+  --workers 4 \
+  --results-dir results/constrained_demo
+```
+
+### Use exhaustive Level 2 selection
+
+```bash
+python examples/full_flow_example.py \
+  --ip-pool configs/ip_pool_synthetic_65nm.yaml \
+  --level2-strategy exhaustive \
+  --level2-exhaustive-max-combinations 100000 \
+  --max-architectures 4 \
+  --workers 4 \
+  --results-dir results/exhaustive_demo
+```
+
+The exhaustive runner raises before enumeration if a search would exceed the configured combination limit; the full-flow example reports that failure and continues with the next architecture.
+
+### Reuse Level 1 across several Level 2 runs
+
+Level 1 plus its ZigZag profiles is the expensive half of the flow. Run it
+once, then feed the handoff to as many Level 2 configurations as needed:
+
+```bash
+python examples/full_flow_example.py \
+  --ip-pool configs/ip_pool_synthetic_65nm.yaml \
+  --level1-pop-size 12 \
+  --level1-generations 3 \
+  --max-architectures 4 \
+  --workers 4 \
+  --level1-only \
+  --results-dir results/level1_handoff_demo
+
+python examples/full_flow_example.py \
+  --ip-pool configs/ip_pool_synthetic_65nm.yaml \
+  --level1-handoff results/level1_handoff_demo/level1_handoff.json \
+  --level2-objectives area energy \
+  --level2-strategy exhaustive \
+  --results-dir results/level2_from_handoff
+```
+
+`--level1-only` stops after writing `level1_handoff.json` (override the path
+with `--level1-handoff-output`). `--level1-handoff` skips the Level 1 search and
+the ZigZag profiling and reuses the stored candidates and profiles; only the
+CACTI calibration is repeated.
+
+### Inspect Level 2 independently
+
+```bash
+python examples/level2_smoke_test.py
+python examples/level2_runner_example.py
+```
+
+The smoke test shows the dynamic Level 2 genes and evaluates their default implementation, both for a decoded Level 1 genome and for `configs/zigzag_accelerator_example.yaml`. The runner executes a small Level 2 NSGA-II search.
+
 ## Architecture
 
 ```mermaid
@@ -51,6 +220,7 @@ The main modules are:
 - `talos/ip`: IP characterization models and YAML-backed IP pools.
 - `talos/level2`: physical genome, evaluator, NSGA-II/exhaustive runners, and power model.
 - `examples`: complete flows, smoke tests, and long sweeps.
+- `select_talos_winners.py`: post-processes an objective-sweep directory into per-target winners.
 
 ### Level 1 genome
 
@@ -137,7 +307,10 @@ constraints.
 The Level 1 objectives also select ZigZag's mapping criterion. Energy objectives
 use `energy`, latency objectives use `latency`, and a mix of both uses `EDP`;
 area alone falls back to `EDP`. The selected criterion is reused when the final
-candidate profile is generated for Level 2.
+candidate profile is generated for Level 2. `python -m talos --ga` honors the
+requested `--objectives`; `examples/full_flow_example.py` always screens the
+fixed energy–latency–area set, so its mapping criterion is `EDP` and its
+`--level1-objectives` option is deprecated.
 
 Level 1 energy uses CACTI together with the 65 nm, 16-bit ratios from Table IV
 of [Eyeriss](https://www.cs.cmu.edu/~15740-f20/papers/isca16-chen-eyeriss.pdf):
@@ -270,115 +443,6 @@ The `energy` and `power` objectives use the same model: `energy` minimizes joule
 
 Area, power, and frequency constraints require the full Level 1 → Level 2 flow. `python -m talos` only accepts the Level 1 latency constraint.
 
-## Installation
-
-Python 3.12 is the tested version.
-
-```bash
-git clone https://github.com/ThaChoppahIsLookinSharp/talos.git
-cd talos
-
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-## Quick start
-
-All commands below are run from the repository root.
-
-### Smoke-test one Level 1 genome
-
-```bash
-python -m talos --ip-pool configs/ip_pool_synthetic_65nm.yaml
-```
-
-Use `--debug` to show ZigZag output and print the generated mapping and accelerator YAML.
-
-### Run Level 1 NSGA-II
-
-```bash
-python -m talos --ga \
-  --workload workloads/alexnet.onnx \
-  --ip-pool configs/ip_pool_synthetic_65nm.yaml \
-  --objectives latency energy area \
-  --pop-size 12 \
-  --generations 4 \
-  --workers 4 \
-  --seed 1 \
-  --zigzag-lpf-limit 1 \
-  --zigzag-spatial-mappings 1 \
-  --results-dir results/level1_demo
-```
-
-`--workers` parallelizes Level 1 candidate evaluation. Larger ZigZag LPF and spatial-mapping limits explore more mappings but increase runtime.
-
-### Run the complete Level 1 → Level 2 flow
-
-```bash
-python examples/full_flow_example.py \
-  --workload workloads/alexnet.onnx \
-  --ip-pool configs/ip_pool_synthetic_65nm.yaml \
-  --level1-objectives latency energy area \
-  --level1-pop-size 12 \
-  --level1-generations 3 \
-  --level2-objectives area energy workload_latency_s \
-  --level2-strategy nsga2 \
-  --level2-pop-size 24 \
-  --level2-generations 4 \
-  --max-architectures 4 \
-  --workers 4 \
-  --seed 1 \
-  --results-dir results/full_flow_demo
-```
-
-This is the main entry point when Level 2 metrics or physical constraints are needed.
-
-### Run with physical constraints
-
-```bash
-python examples/full_flow_example.py \
-  --workload workloads/alexnet.onnx \
-  --ip-pool configs/ip_pool_synthetic_65nm.yaml \
-  --level1-objectives latency energy area \
-  --level2-objectives area energy workload_latency_s \
-  --max-latency-cycles 100000000 \
-  --max-area-mm2 6.0 \
-  --max-power-w 1.2 \
-  --min-frequency-mhz 600 \
-  --level1-pop-size 24 \
-  --level1-generations 3 \
-  --level2-pop-size 24 \
-  --level2-generations 4 \
-  --max-architectures 8 \
-  --workers 4 \
-  --results-dir results/constrained_demo
-```
-
-### Use exhaustive Level 2 selection
-
-```bash
-python examples/full_flow_example.py \
-  --ip-pool configs/ip_pool_synthetic_65nm.yaml \
-  --level2-strategy exhaustive \
-  --level2-exhaustive-max-combinations 100000 \
-  --max-architectures 4 \
-  --workers 4 \
-  --results-dir results/exhaustive_demo
-```
-
-The exhaustive runner raises before enumeration if a search would exceed the configured combination limit; the full-flow example reports that failure and continues with the next architecture.
-
-### Inspect Level 2 independently
-
-```bash
-python examples/level2_smoke_test.py
-python examples/level2_runner_example.py
-```
-
-The smoke test shows the dynamic Level 2 genes and evaluates their default implementation. The runner executes a small Level 2 NSGA-II search.
-
 ## Long sweeps
 
 The sweep scripts create a timestamped directory and a `manifest.csv` containing every command, case, result directory, summary path, and return code.
@@ -413,6 +477,21 @@ python examples/objective_sweep.py \
 
 These objective-sweep defaults are calibrated to leave a useful feasible region in the included synthetic pool; they are not silicon design targets. The constraint sweep intentionally uses much tighter values as regression cases. Use `--no-constraints` to compare objectives without area, power, or frequency limits.
 
+### Select sweep winners
+
+```bash
+python select_talos_winners.py results/objective_sweep/<timestamp> --output winners.csv
+```
+
+The script reads every `full_flow_summary.csv` under the sweep directory,
+keeps feasible rows, and picks one winner per objective case. Single
+objectives take the minimum; multi-objective cases use
+`S(x) = 100 · sqrt(Σ_i ln(f_i(x) / f_i_min)²)` with the ideal computed over
+all feasible rows of the sweep. This is a different score from the augmented
+Tchebycheff ranking inside the exhaustive runner, and the per-CSV
+`augmented_tchebycheff_score` columns are ignored. `--energy-mode onchip`
+subtracts DRAM energy before ranking.
+
 ### Latest characterized sweeps
 
 The FP16 and FP32 sweeps used the first ResNet18 layer. Both completed
@@ -428,7 +507,8 @@ physical implementations.
 
 The FP32 run matches the workload representation. The FP16 comparison
 is descriptive because TALOS retained the format mismatch by policy.
-Both full reports are stored under `results/sweep_reports`.
+Both full reports were written under `results/sweep_reports`, which Git
+ignores; the numbers above are kept here for reference only.
 
 ## IP pool format
 
@@ -449,13 +529,16 @@ to `int8`, `uint8`, `float16`, or `float32`. The integer characterized
 pool includes the shared 512-bit platform DRAM proxy; the FP16 and FP32
 pools let the full flow inject the same proxy.
 
-The five included pools are:
+The six included pools are:
 
 - `configs/ip_pool_example.yaml`: illustrative values for small examples.
 - `configs/ip_pool_synthetic_65nm.yaml`: synthetic values used by tests and sweeps; they are not foundry characterization.
 - `configs/ip_pool_characterized_65nm.yaml`: post-synthesis TSMC65 PE
   characterization for all integer PEs and all 15 memories, plus the shared
   512-bit platform DRAM proxy.
+- `configs/ip_pool_int16_65nm.yaml`: three INT16 PEs characterized with
+  Genus at 200 MHz and 1.2 V, the 15 memories and the shared platform DRAM
+  proxy. These PEs are not part of `ip_catalog_65nm.yaml`.
 - `configs/ip_pool_fp16_65nm.yaml`: the two FP16 PEs and the RF and GB
   characterization from the supplied 65 nm pool.
 - `configs/ip_pool_fp32_65nm.yaml`: the three FP32 PEs and all 15
@@ -621,8 +704,12 @@ results/full_flow_demo/
 │   ├── energy_calibration.json
 │   └── pymoo_nsga2_results_<timestamp>.csv
 ├── level1_profiles/
+├── level1_handoff.json          # only with --level1-only
 ├── level2_arch_<index>/
 │   └── level2_<nsga2|exhaustive>_results.csv
+├── winner/
+│   ├── architecture.json        # first row of the summary
+│   └── zigzag/                  # its ZigZag mapping dump
 └── full_flow_summary.csv
 ```
 
@@ -697,6 +784,7 @@ python -m talos --help
 python examples/full_flow_example.py --help
 python examples/constraint_sweep.py --help
 python examples/objective_sweep.py --help
+python select_talos_winners.py --help
 ```
 
 ## Current limitations
