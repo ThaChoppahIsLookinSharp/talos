@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import multiprocessing as mp
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,11 +39,15 @@ def run_level2_nsga2(
     debug: bool = False,
     constraints: UserConstraints | None = None,
     activity_profile: WorkloadActivityProfile | None = None,
+    n_workers: int = 1,
 ) -> Level2NSGA2RunResult:
+    if n_workers < 1:
+        raise ValueError("n_workers must be at least 1.")
     try:
         import numpy as np
         from pymoo.algorithms.moo.nsga2 import NSGA2
         from pymoo.config import Config
+        from pymoo.core.problem import StarmapParallelization
         from pymoo.core.repair import Repair
         from pymoo.optimize import minimize
         from pymoo.operators.crossover.sbx import SBX
@@ -56,12 +61,18 @@ def run_level2_nsga2(
     Config.warnings["not_compiled"] = False
 
     objectives = list(objective_names or DEFAULT_LEVEL2_OBJECTIVES)
+    pool: Any | None = None
+    if n_workers > 1:
+        pool = mp.get_context("spawn").Pool(processes=n_workers)
     problem = Level2PymooProblem(
         accelerator=accelerator,
         ip_pool=ip_pool,
         objective_names=objectives,
         constraints=constraints,
         activity_profile=activity_profile,
+        elementwise_runner=(
+            None if pool is None else StarmapParallelization(pool.starmap)
+        ),
     )
     class CanonicalRepair(Repair):
         def _do(self, _problem: Any, x: Any, **_kwargs: Any) -> Any:
@@ -80,19 +91,24 @@ def run_level2_nsga2(
         eliminate_duplicates=True,
     )
 
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            category=DeprecationWarning,
-            module=r"pymoo\..*",
-        )
-        pymoo_result = minimize(
-            problem,
-            algorithm,
-            ("n_gen", n_gen),
-            seed=seed,
-            verbose=debug,
-        )
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                category=DeprecationWarning,
+                module=r"pymoo\..*",
+            )
+            pymoo_result = minimize(
+                problem,
+                algorithm,
+                ("n_gen", n_gen),
+                seed=seed,
+                verbose=debug,
+            )
+    finally:
+        if pool is not None:
+            pool.close()
+            pool.join()
 
     solutions = _build_solution_rows(
         problem=problem,
@@ -135,6 +151,7 @@ def run_level2(
     constraints: UserConstraints | None = None,
     activity_profile: WorkloadActivityProfile | None = None,
     exhaustive_max_combinations: int = 100_000,
+    n_workers: int = 1,
 ) -> Any:
     if strategy == "nsga2":
         return run_level2_nsga2(
@@ -149,6 +166,7 @@ def run_level2(
             debug=debug,
             constraints=constraints,
             activity_profile=activity_profile,
+            n_workers=n_workers,
         )
     if strategy == "exhaustive":
         from talos.level2.exhaustive_runner import run_level2_exhaustive

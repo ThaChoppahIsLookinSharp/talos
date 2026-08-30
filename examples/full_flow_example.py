@@ -483,6 +483,7 @@ def main() -> int:
                 constraints=constraints,
                 activity_profile=candidate.activity_profile,
                 exhaustive_max_combinations=args.level2_exhaustive_max_combinations,
+                n_workers=args.workers,
             )
         except Exception as exc:
             level2_failures += 1
